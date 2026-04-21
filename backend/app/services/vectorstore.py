@@ -1,0 +1,172 @@
+"""
+Pinecone vector store service for RAG document embeddings.
+"""
+import logging
+import hashlib
+from typing import Optional, List
+
+from openai import OpenAI
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+
+def _get_openai_client() -> Optional[OpenAI]:
+    if not settings.OPENAI_API_KEY:
+        return None
+    return OpenAI(api_key=settings.OPENAI_API_KEY)
+
+
+def _get_pinecone_index():
+    """Initialize and return the Pinecone index."""
+    try:
+        from pinecone import Pinecone
+        pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+        return pc.Index(settings.PINECONE_INDEX)
+    except Exception as e:
+        logger.error(f"Pinecone init failed: {e}")
+        return None
+
+
+def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
+    """Split text into overlapping chunks for embedding."""
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        if chunk.strip():
+            chunks.append(chunk.strip())
+        start = end - overlap
+
+    return chunks
+
+
+def _get_embedding(text: str, client: OpenAI) -> list[float]:
+    """Get OpenAI embedding for a text chunk."""
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text[:8000],  # Token limit safety
+    )
+    return response.data[0].embedding
+
+
+async def upsert_document(
+    doc_id: int,
+    text: str,
+    metadata: dict,
+    tenant_id: int,
+) -> int:
+    """
+    Chunk document text, generate embeddings, and upsert to Pinecone.
+    Returns the number of chunks indexed.
+    """
+    client = _get_openai_client()
+    index = _get_pinecone_index()
+
+    if not client or not index or not text.strip():
+        logger.warning("Vectorstore upsert skipped: missing client, index, or text")
+        return 0
+
+    chunks = _chunk_text(text)
+    vectors = []
+
+    for i, chunk in enumerate(chunks):
+        try:
+            embedding = _get_embedding(chunk, client)
+            chunk_id = f"doc-{doc_id}-chunk-{i}"
+            vectors.append({
+                "id": chunk_id,
+                "values": embedding,
+                "metadata": {
+                    **metadata,
+                    "doc_id": doc_id,
+                    "tenant_id": tenant_id,
+                    "chunk_index": i,
+                    "chunk_text": chunk[:1000],  # Store snippet for retrieval
+                },
+            })
+        except Exception as e:
+            logger.error(f"Embedding failed for chunk {i} of doc {doc_id}: {e}")
+
+    if vectors:
+        try:
+            # Upsert in batches of 100
+            for batch_start in range(0, len(vectors), 100):
+                batch = vectors[batch_start:batch_start + 100]
+                index.upsert(vectors=batch)
+            logger.info(f"Upserted {len(vectors)} chunks for doc {doc_id}")
+        except Exception as e:
+            logger.error(f"Pinecone upsert failed: {e}")
+            return 0
+
+    return len(vectors)
+
+
+async def search_vectors(
+    query: str,
+    tenant_id: int,
+    top_k: int = 5,
+    property_id: Optional[int] = None,
+) -> list[dict]:
+    """
+    Semantic search across indexed documents.
+    Returns ranked results with metadata and snippet text.
+    """
+    client = _get_openai_client()
+    index = _get_pinecone_index()
+
+    if not client or not index:
+        return []
+
+    try:
+        query_embedding = _get_embedding(query, client)
+
+        # Build filter
+        filter_dict = {"tenant_id": {"$eq": tenant_id}}
+        if property_id:
+            filter_dict["property_id"] = {"$eq": property_id}
+
+        results = index.query(
+            vector=query_embedding,
+            top_k=top_k,
+            include_metadata=True,
+            filter=filter_dict,
+        )
+
+        return [
+            {
+                "doc_id": match.metadata.get("doc_id"),
+                "filename": match.metadata.get("filename", ""),
+                "category": match.metadata.get("category", ""),
+                "chunk_text": match.metadata.get("chunk_text", ""),
+                "score": match.score,
+                "chunk_index": match.metadata.get("chunk_index", 0),
+            }
+            for match in results.matches
+        ]
+    except Exception as e:
+        logger.error(f"Vector search failed: {e}")
+        return []
+
+
+async def delete_document_vectors(doc_id: int) -> bool:
+    """Remove all vectors for a specific document."""
+    index = _get_pinecone_index()
+    if not index:
+        return False
+
+    try:
+        # Delete by ID prefix
+        # Note: Pinecone doesn't support prefix delete in all tiers
+        # This is a best-effort approach
+        ids_to_delete = [f"doc-{doc_id}-chunk-{i}" for i in range(100)]
+        index.delete(ids=ids_to_delete)
+        return True
+    except Exception as e:
+        logger.error(f"Vector delete failed: {e}")
+        return False
