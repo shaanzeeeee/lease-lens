@@ -87,6 +87,7 @@ async def upload_documents(
         await db.refresh(doc)
         uploaded.append(DocumentResponse.model_validate(doc))
 
+    await db.commit()
     return uploaded
 
 
@@ -256,3 +257,31 @@ async def approve_document(
     await db.flush()
     await db.refresh(doc)
     return DocumentResponse.model_validate(doc)
+
+
+@router.delete("/{doc_id}", status_code=204)
+async def delete_document(
+    doc_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a document and its file."""
+    result = await db.execute(
+        select(Document)
+        .join(Property)
+        .where(Document.id == doc_id, Property.tenant_id == current_user.tenant_id)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete from disk
+    if os.path.exists(doc.file_path):
+        try:
+            os.remove(doc.file_path)
+        except Exception as e:
+            print(f"Warning: Failed to delete file {doc.file_path}: {e}")
+
+    await db.delete(doc)
+    await db.commit()
+    return None

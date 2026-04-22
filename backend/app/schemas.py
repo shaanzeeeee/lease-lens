@@ -1,9 +1,10 @@
 """
 Pydantic V2 schemas for request/response validation.
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 from typing import Optional, List, Any
 from datetime import datetime
+
 
 
 # ─── Auth ────────────────────────────────────────────────────────────
@@ -34,8 +35,7 @@ class UserResponse(BaseModel):
     tenant_id: int
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Tenants ─────────────────────────────────────────────────────────
@@ -45,8 +45,7 @@ class TenantResponse(BaseModel):
     slug: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Properties ──────────────────────────────────────────────────────
@@ -87,8 +86,7 @@ class PropertyResponse(BaseModel):
     document_count: Optional[int] = 0
     deal_count: Optional[int] = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Apartments ──────────────────────────────────────────────────────
@@ -117,8 +115,7 @@ class ApartmentResponse(BaseModel):
     tenant_name: Optional[str]
     status: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Documents ───────────────────────────────────────────────────────
@@ -140,8 +137,7 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DocumentDetailResponse(DocumentResponse):
@@ -175,17 +171,59 @@ class DealResponse(BaseModel):
     updated_at: datetime
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DealDetailResponse(DealResponse):
-    structured_data: Optional[dict]
-    lease_summary: Optional[list]
-    expense_breakdown: Optional[dict]
-    ai_report: Optional[str]
-    pipeline_log: Optional[list]
-    validation_errors: Optional[list]
+    structured_data: Optional[dict] = None
+    lease_summary: Optional[list] = None
+    expense_breakdown: Optional[dict] = None
+    ai_report: Optional[str] = None
+    pipeline_log: Optional[list] = None
+    validation_errors: Optional[list] = None
+
+    @field_validator('structured_data', 'expense_breakdown', mode='before')
+    @classmethod
+    def coerce_to_dict(cls, v: Any) -> dict:
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str) and v.strip():
+            try:
+                import ast
+                val = ast.literal_eval(v)
+                if isinstance(val, dict):
+                    return val
+            except:
+                try:
+                    import json
+                    val = json.loads(v)
+                    if isinstance(val, dict):
+                        return val
+                except:
+                    pass
+        return {}
+
+    @field_validator('lease_summary', 'pipeline_log', 'validation_errors', mode='before')
+    @classmethod
+    def coerce_to_list(cls, v: Any) -> list:
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str) and v.strip():
+            try:
+                import ast
+                val = ast.literal_eval(v)
+                if isinstance(val, list):
+                    return val
+            except:
+                try:
+                    import json
+                    val = json.loads(v)
+                    if isinstance(val, list):
+                        return val
+                except:
+                    pass
+        return []
+
 
 
 # ─── Chat ────────────────────────────────────────────────────────────

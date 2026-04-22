@@ -22,7 +22,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [theme, setTheme] = React.useState<'light' | 'dark'>(
-    (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
+    (localStorage.getItem('theme') as 'light' | 'dark') || 'dark'
   );
 
   useEffect(() => {
@@ -37,7 +37,11 @@ export default function AppLayout() {
   const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
 
   useEffect(() => {
-    if (searchQuery && location.pathname !== '/properties' && location.pathname !== '/hitl') {
+    const isSearchablePage = location.pathname === '/properties' || 
+                            location.pathname.startsWith('/properties/') || 
+                            location.pathname === '/hitl';
+    
+    if (searchQuery && !isSearchablePage) {
       navigate('/properties');
     }
   }, [searchQuery, location.pathname, navigate]);
@@ -62,7 +66,7 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside className="relative z-20 w-64 hidden md:flex flex-col">
         <div className="p-6 flex items-center gap-3">
-          <div className="h-10 w-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
+          <div className="h-10 w-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-primary/30">
             <Building2 className="text-primary-foreground w-6 h-6" />
           </div>
           <div>
@@ -136,7 +140,7 @@ export default function AppLayout() {
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full hover:bg-accent/50">
-              {theme === 'light' ? <Moon className="w-5 h-4 text-muted-foreground" /> : <Sun className="w-5 h-4 text-primary" />}
+              {theme === 'light' ? <Moon className="w-5 h-5 text-muted-foreground" /> : <Sun className="w-5 h-5 text-primary" />}
             </Button>
             <div className="h-6 w-[1px] bg-border mx-1" />
             <div className="text-xs font-medium px-3 py-1 bg-secondary rounded-full border text-secondary-foreground">

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { FileWarning, CheckCircle, XCircle, ArrowRight, FileText } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button } from '../components/ui/components';
+import { Card, CardHeader, CardTitle, Button } from '../components/ui/components';
 import { apiClient } from '../api/client';
 import { useSearch } from '../context/SearchContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -68,7 +68,7 @@ export default function HitlQueue() {
         responseType: 'blob'
       });
       
-      const blob = new Blob([response.data], { type: response.headers['content-type'] });
+      const blob = new Blob([response.data], { type: response.headers['content-type'] as string || 'application/octet-stream' });
       const url = window.URL.createObjectURL(blob);
       
       setPreviewBlob(blob);

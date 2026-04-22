@@ -35,8 +35,8 @@ pip install -r requirements.txt
 ```bash
 python -m uvicorn app.main:app --reload
 ```
-The API will be available at [http://127.0.0.1:8000](http://127.0.0.1:8000).
-Documentation (Swagger UI) is at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+The API will be available at [http://127.0.0.1:8001](http://127.0.0.1:8001).
+Documentation (Swagger UI) is at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs).
 
 ---
 

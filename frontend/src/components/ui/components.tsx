@@ -103,3 +103,90 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   }
 );
 Input.displayName = 'Input';
+
+// Skeleton Component
+export function Skeleton({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn('animate-pulse rounded-md bg-muted/40', className)}
+      {...props}
+    />
+  );
+}
+
+// Badge Component
+export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning';
+}
+
+export function Badge({ className, variant = 'default', ...props }: BadgeProps) {
+  const variants = {
+    default: 'border-transparent bg-primary text-primary-foreground hover:bg-primary/80',
+    secondary: 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
+    destructive: 'border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80',
+    outline: 'text-foreground',
+    success: 'border-transparent bg-green-500/10 text-green-500 hover:bg-green-500/20',
+    warning: 'border-transparent bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20',
+  };
+
+  return (
+    <div
+      className={cn(
+        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+        variants[variant],
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+// Modal Component
+export interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  size?: 'default' | 'lg' | 'xl' | 'full';
+}
+
+export function Modal({ isOpen, onClose, title, children, size = 'default' }: ModalProps) {
+  if (!isOpen) return null;
+
+  const sizes = {
+    default: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-5xl',
+    full: 'max-w-[95vw]'
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+      <div 
+        className={cn(
+          "bg-card w-full rounded-2xl border border-border/50 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200",
+          sizes[size]
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-border/50 flex justify-between items-center bg-muted/10">
+          <h3 className="text-lg font-bold tracking-tight">{title}</h3>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-muted rounded-full transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+        <div className="p-6">
+          {children}
+        </div>
+      </div>
+      <div className="fixed inset-0 -z-10" onClick={onClose} />
+    </div>
+  );
+}
+

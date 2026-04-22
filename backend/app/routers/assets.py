@@ -16,8 +16,12 @@ from app.schemas import (
     PaginatedResponse, DashboardStats, DealResponse,
 )
 from app.auth import get_current_user, User
+from app.services.vectorstore import delete_property_vectors
+from app.config import get_settings
 
-router = APIRouter(prefix="/api/properties", tags=["Properties"])
+settings = get_settings()
+
+router = APIRouter(tags=["Properties"])
 
 
 @router.get("/dashboard", response_model=DashboardStats)
@@ -175,6 +179,47 @@ async def create_property(
     return PropertyResponse.model_validate(prop)
 
 
+
+@router.delete("/{prop_id}", status_code=204)
+async def delete_property(
+    prop_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a property and all associated data."""
+    result = await db.execute(
+        select(Property).where(
+            Property.id == prop_id,
+            Property.tenant_id == current_user.tenant_id,
+        )
+    )
+    prop = result.scalar_one_or_none()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # 1. Delete vectors from Pinecone
+    try:
+        await delete_property_vectors(prop_id)
+    except Exception as e:
+        # Log but don't block deletion if vectorstore is down
+        print(f"Warning: Failed to delete vectors for property {prop_id}: {e}")
+
+    # 2. Delete files from disk
+    import shutil
+    import os
+    prop_dir = os.path.join(settings.UPLOAD_DIR, str(prop_id))
+    if os.path.exists(prop_dir):
+        try:
+            shutil.rmtree(prop_dir)
+        except Exception as e:
+            print(f"Warning: Failed to delete files for property {prop_id}: {e}")
+
+    # 3. Delete from database (cascades handle related documents/deals)
+    await db.delete(prop)
+    await db.commit()
+    return None
+
+
 @router.get("/{prop_id}", response_model=PropertyResponse)
 async def get_property(
     prop_id: int,
@@ -230,7 +275,6 @@ async def update_property(
     await db.flush()
     await db.refresh(prop)
     return PropertyResponse.model_validate(prop)
-
 
 # ─── Apartments ──────────────────────────────────────────────────────
 
@@ -292,3 +336,51 @@ async def create_apartment(
     await db.flush()
     await db.refresh(apt)
     return ApartmentResponse.model_validate(apt)
+
+
+@router.get("/{prop_id}/summary")
+async def get_property_summary(
+    prop_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get an aggregated AI summary for the property based on all documents."""
+    result = await db.execute(
+        select(Property).where(
+            Property.id == prop_id,
+            Property.tenant_id == current_user.tenant_id,
+        )
+    )
+    prop = result.scalar_one_or_none()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Get all document summaries
+    result = await db.execute(
+        select(Document.ai_summary).where(
+            Document.property_id == prop_id,
+            Document.ai_summary != None,
+            Document.ai_summary != ""
+        )
+    )
+    summaries = result.scalars().all()
+
+    # Get latest deal info
+    result = await db.execute(
+        select(Deal).where(Deal.property_id == prop_id).order_by(Deal.created_at.desc()).limit(1)
+    )
+    deal = result.scalar_one_or_none()
+
+    combined_summary = "\n\n".join(summaries) if summaries else "No document summaries available."
+    
+    return {
+        "property_name": prop.name,
+        "combined_summary": combined_summary,
+        "deal_metrics": {
+            "noi": deal.noi if deal else None,
+            "cap_rate": deal.cap_rate if deal else None,
+            "purchase_price": deal.purchase_price if deal else None,
+            "cash_on_cash": deal.cash_on_cash if deal else None,
+        } if deal else None,
+        "document_count": len(summaries)
+    }

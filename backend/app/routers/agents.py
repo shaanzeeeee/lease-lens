@@ -46,7 +46,8 @@ async def _process_document(doc_id: int, tenant_id: int):
                 doc.ocr_blocks = ocr_result["blocks"]
 
                 # Check confidence threshold for HITL
-                if ocr_result["confidence"] < settings.OCR_CONFIDENCE_THRESHOLD and ocr_result["confidence"] > 0:
+                threshold = settings.OCR_CONFIDENCE_THRESHOLD
+                if ocr_result["confidence"] < threshold and ocr_result["confidence"] > 0:
                     doc.status = DocumentStatus.NEEDS_REVIEW.value
                     await db.commit()
                     logger.info(f"Doc {doc_id}: low confidence ({ocr_result['confidence']}%), flagged for review")

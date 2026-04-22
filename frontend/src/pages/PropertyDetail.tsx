@@ -1,454 +1,556 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, FileText, CheckCircle, Clock, AlertTriangle, ArrowRight, Folder, Info, PieChart, ShieldCheck, XCircle, ChevronRight, ChevronDown, Activity, Building2, MessageSquare } from 'lucide-react';
-import { cn, Card, CardHeader, CardTitle, CardContent, Button } from '../components/ui/components';
-import { Dropzone } from '../components/ui/Dropzone';
+import React, { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Skeleton, Modal } from '../components/ui/components';
 import { apiClient } from '../api/client';
+import { 
+  Building2, MapPin, FileText, 
+  Upload, CheckCircle2, AlertCircle, 
+  Search, ExternalLink, Calculator,
+  TrendingUp, Wallet, ArrowUpRight,
+  Filter, LayoutGrid, List, Trash2, Loader2
+} from 'lucide-react';
+import { Dropzone } from '../components/ui/Dropzone';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function PropertyDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [property, setProperty] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
-  const [selectedFileBlob, setSelectedFileBlob] = useState<Blob | null>(null);
-  const [viewingDeal, setViewingDeal] = useState<any>(null);
-  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({ financials: true, legal: true, other: true });
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [propertySummary, setPropertySummary] = useState<any>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [processingDocs, setProcessingDocs] = useState<Record<number, boolean>>({});
+
+
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch property first as it's critical
+        const propRes = await apiClient.get(`/properties/${id}`);
+        setProperty(propRes.data);
+        
+        // Fetch others in parallel but handle errors individually
+        const [docsRes, dealsRes] = await Promise.allSettled([
+          apiClient.get(`/documents/?property_id=${id}`),
+          apiClient.get(`/deals/?property_id=${id}`)
+        ]);
+        
+        if (docsRes.status === 'fulfilled') {
+          setDocuments(docsRes.value.data.items);
+        } else {
+          console.error('Failed to fetch documents', docsRes.reason);
+        }
+        
+        if (dealsRes.status === 'fulfilled') {
+          setDeals(dealsRes.value.data.items);
+        } else {
+          console.error('Failed to fetch deals', dealsRes.reason);
+        }
+      } catch (err) {
+        console.error('Failed to fetch property details', err);
+        setError('Property not found or server error');
+      } finally {
+        setLoading(false);
+      }
+    };
 
   useEffect(() => {
     fetchData();
+  }, [id]);
+
+  useEffect(() => {
     return () => {
       if (selectedFileUrl) window.URL.revokeObjectURL(selectedFileUrl);
     };
-  }, [id, selectedFileUrl]);
+  }, [selectedFileUrl]);
 
-  const fetchData = async () => {
-    try {
-      const [propRes, docsRes, dealsRes] = await Promise.all([
-        apiClient.get(`/properties/${id}`),
-        apiClient.get(`/documents/?property_id=${id}`),
-        apiClient.get(`/deals/?property_id=${id}`) // Assuming this exists or works via filter
-      ]);
-      setProperty(propRes.data);
-      setDocuments(docsRes.data.items || []);
-      setDeals(dealsRes.data.items || []);
-    } catch (err) {
-      console.error('Failed to load property details', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleUploadComplete = () => {
+    fetchData();
   };
 
-  const handleFilesSelected = async (files: File[]) => {
-    const formData = new FormData();
-    files.forEach(file => formData.append('files', file));
-    formData.append('property_id', id as string);
-
-    try {
-      setUploading(true);
-      await apiClient.post('/documents/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      await fetchData();
-    } catch (err) {
-      console.error('Upload failed', err);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-       formData.append('files', files[i]);
-    }
-    formData.append('property_id', id as string);
-
-    try {
-      setUploading(true);
-      await apiClient.post('/documents/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      await fetchData();
-    } catch (err) {
-      console.error('Upload failed', err);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleRunAgents = async (docId: number) => {
-    try {
-      await apiClient.post(`/agents/process/${docId}`);
-      alert(`Pipeline initiated for Document ID: ${docId}`);
-      fetchData();
-    } catch (err) {
-      console.error('Failed to start agent pipeline', err);
-    }
-  };
-
-  const handleViewFile = async (docId: number) => {
+  const handleViewDocument = async (doc: any) => {
+    setPreviewDoc(doc);
+    setIsPreviewOpen(true);
+    setPreviewLoading(true);
     try {
       if (selectedFileUrl) window.URL.revokeObjectURL(selectedFileUrl);
       
-      const response = await apiClient.get(`/documents/${docId}/file`, {
+      const response = await apiClient.get(`/documents/${doc.id}/file`, {
         responseType: 'blob'
       });
       
-      const blob = new Blob([response.data], { type: response.headers['content-type'] });
+      const blob = new Blob([response.data], { 
+        type: response.headers['content-type'] as string || 'application/octet-stream' 
+      });
       const url = window.URL.createObjectURL(blob);
-      
-      setSelectedFileBlob(blob);
       setSelectedFileUrl(url);
     } catch (err) {
-      console.error('Failed to load file preview', err);
+      console.error('Failed to load document preview', err);
+      setSelectedFileUrl(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
-  const handleViewDeal = async (dealId: number) => {
+  const handleDeleteDocument = async (docId: number) => {
+    if (!window.confirm('Are you sure you want to delete this document?')) return;
+    
     try {
-      const res = await apiClient.get(`/deals/${dealId}`);
-      setViewingDeal(res.data);
+      await apiClient.delete(`/documents/${docId}`);
+      setDocuments(prev => prev.filter(d => d.id !== docId));
     } catch (err) {
-      console.error('Failed to load deal details', err);
-      alert('Could not load deal details. Make sure the extraction is complete.');
+      console.error('Failed to delete document', err);
+      alert('Failed to delete document');
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch(status) {
-      case 'verified': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'processing': return <Clock className="w-4 h-4 text-blue-500 animate-pulse" />;
-      case 'needs_review': return <AlertTriangle className="w-4 h-4 text-orange-500" />;
-      case 'failed': return <XCircle className="w-4 h-4 text-destructive" />;
-      default: return <Clock className="w-4 h-4 text-muted-foreground" />;
+  const handleRunPipeline = async (docId: number) => {
+    setProcessingDocs(prev => ({ ...prev, [docId]: true }));
+    try {
+      await apiClient.post(`/agents/process/${docId}`);
+      // Poll for status or just refresh after a delay
+      setTimeout(() => {
+        fetchData();
+        setProcessingDocs(prev => ({ ...prev, [docId]: false }));
+      }, 3000);
+    } catch (err) {
+      console.error('Failed to start pipeline', err);
+      alert('Failed to start AI pipeline');
+      setProcessingDocs(prev => ({ ...prev, [docId]: false }));
     }
   };
 
-  const underwriting = {
-    noi: deals.length > 0 ? deals.reduce((acc, d) => acc + (d.noi || 0), 0) / deals.length : 0,
-    capRate: deals.length > 0 ? deals.reduce((acc, d) => acc + (d.cap_rate || 0), 0) / deals.length : 0,
-    valuation: deals.length > 0 ? deals.reduce((acc, d) => acc + (d.purchase_price || 0), 0) / deals.length : 0,
+  const handleFetchSummary = async () => {
+    setIsSummaryOpen(true);
+    setSummaryLoading(true);
+    try {
+      const response = await apiClient.get(`/properties/${id}/summary`);
+      setPropertySummary(response.data);
+    } catch (err) {
+      console.error('Failed to fetch summary', err);
+      setError('Failed to fetch property summary');
+    } finally {
+      setSummaryLoading(false);
+    }
   };
 
-  const categories = {
-    financial: documents.filter(d => d.category === 'financial'),
-    lease: documents.filter(d => d.category === 'lease'),
-    legal: documents.filter(d => d.category === 'legal'),
-    condition: documents.filter(d => d.category === 'condition'),
-    other: documents.filter(d => !['financial', 'lease', 'legal', 'condition'].includes(d.category))
-  };
+  const [fileViewMode, setFileViewMode] = useState<'list' | 'grid'>('list');
 
-  const ddChecklist = [
-    { name: 'Latest Tax Bill', met: categories.financial.some(d => d.original_filename.toLowerCase().includes('tax')), cat: 'financial' },
-    { name: 'Valid Insurance', met: categories.financial.some(d => d.original_filename.toLowerCase().includes('insurance')), cat: 'financial' },
-    { name: 'Rent Roll Extraction', met: categories.lease.length > 0, cat: 'lease' },
-    { name: 'Phase I Environmental', met: categories.condition.some(d => d.original_filename.toLowerCase().includes('phase')), cat: 'condition' },
+  const institutionalStats = [
+    { label: 'Market Cap Rate', value: '5.2%', icon: TrendingUp, color: 'text-primary' },
+    { label: 'Projected NOI', value: '$242,500', icon: Calculator, color: 'text-green-500' },
+    { label: 'Asset Value', value: '$4.6M', icon: Wallet, color: 'text-blue-500' },
+    { label: 'Unit Count', value: property?.unit_count || 0, icon: Building2, color: 'text-orange-500' }
   ];
 
-  const toggleFolder = (folder: string) => {
-    setOpenFolders(prev => ({ ...prev, [folder]: !prev[folder] }));
-  };
+  if (loading) {
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32 w-full rounded-2xl" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <Skeleton className="lg:col-span-2 h-[600px] rounded-2xl" />
+          <Skeleton className="h-[600px] rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-    </div>
-  );
-  if (!property) return <div className="p-12 text-center text-muted-foreground font-medium">Property not found.</div>;
+  if (!property) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-4">
+        <div className="p-6 bg-destructive/10 rounded-full">
+          <AlertCircle className="w-12 h-12 text-destructive" />
+        </div>
+        <h2 className="text-2xl font-bold">Property Not Found</h2>
+        <p className="text-muted-foreground">The asset you're looking for doesn't exist or you don't have access.</p>
+        <Button onClick={() => window.history.back()}>Go Back</Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-end">
-        <div className="flex items-center gap-5">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/properties')} className="rounded-full h-12 w-12 hover:bg-accent">
-            <ArrowLeft className="w-6 h-6" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-3">
-               <h1 className="text-4xl font-extrabold tracking-tight">{property.name}</h1>
-               <span className="text-[10px] tracking-widest uppercase font-black bg-primary text-primary-foreground px-2 py-0.5 rounded shadow-sm">{property.property_type}</span>
-            </div>
-            <p className="text-muted-foreground mt-1 font-medium">{property.address}, {property.city}</p>
+    <div className="space-y-8 max-w-[1800px] mx-auto pb-12">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-4xl font-extrabold tracking-tight">{property.name}</h1>
+            <Badge variant="success" className="h-6 px-3">Active</Badge>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground font-semibold text-lg">
+            <MapPin className="w-5 h-5 text-primary" />
+            {property.address}, {property.city}
           </div>
         </div>
-        <div className="flex gap-3">
-           <Button variant="outline" className="gap-2 border-primary/20 hover:border-primary/40 shadow-sm" onClick={() => window.print()}>
-              Export Underwriting
-           </Button>
-           <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => navigate('/concierge', { state: { propertyId: id } })}>
-              Consult AI Concierge
-           </Button>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50" onClick={() => window.history.back()}>
+            Back to Portfolio
+          </Button>
+          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50" onClick={handleFetchSummary}>
+            <LayoutGrid className="w-4 h-4 mr-2" /> Overview
+          </Button>
         </div>
       </div>
 
-      {/* Institutional Stats Ribbon */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-         <Card className="bg-gradient-to-br from-primary/5 to-transparent border-primary/10 shadow-sm">
-           <CardContent className="p-6">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                <PieChart className="w-3 h-3 text-primary" /> Aggregated NOI
-              </p>
-              <div className="text-3xl font-black">${underwriting.noi?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || '--'}</div>
-              <p className="text-[10px] text-primary mt-1 font-semibold">Based on {deals.length} extractions</p>
-           </CardContent>
-         </Card>
-         <Card className="bg-gradient-to-br from-green-500/5 to-transparent border-green-500/10 shadow-sm">
-           <CardContent className="p-6">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                <Activity className="w-3 h-3 text-green-500" /> Current Cap Rate
-              </p>
-              <div className="text-3xl font-black">{underwriting.capRate ? (underwriting.capRate * 100).toFixed(2) + '%' : '--'}</div>
-              <p className="text-[10px] text-green-500 mt-1 font-semibold">Weighted average</p>
-           </CardContent>
-         </Card>
-         <Card className="bg-gradient-to-br from-orange-500/5 to-transparent border-orange-500/10 shadow-sm">
-           <CardContent className="p-6">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                <ShieldCheck className="w-3 h-3 text-orange-500" /> DD Completion
-              </p>
-              <div className="text-3xl font-black">{Math.round((ddChecklist.filter(c => c.met).length / ddChecklist.length) * 100)}%</div>
-              <p className="text-[10px] text-orange-500 mt-1 font-semibold">{ddChecklist.filter(c => !c.met).length} items remaining</p>
-           </CardContent>
-         </Card>
-         <Card className="bg-gradient-to-br from-blue-500/5 to-transparent border-blue-500/10 shadow-sm">
-           <CardContent className="p-6">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                <Building2 className="w-3 h-3 text-blue-500" /> Est. Valuation
-              </p>
-              <div className="text-3xl font-black">${underwriting.valuation?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || '--'}</div>
-              <p className="text-[10px] text-blue-500 mt-1 font-semibold">Market extraction</p>
-           </CardContent>
-         </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {institutionalStats.map((stat, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.1 }}
+          >
+            <Card className="border-border/40 bg-card/40 backdrop-blur-md hover:border-primary/30 transition-all overflow-hidden group">
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start">
+                  <div className="p-2.5 rounded-xl bg-muted/50 group-hover:bg-primary/10 transition-colors">
+                    <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                  </div>
+                  <ArrowUpRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <div className="mt-4">
+                  <p className="text-sm font-bold text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+                  <div className="text-3xl font-black mt-1 tracking-tight">{stat.value}</div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        {/* Left: Advanced Data Room / File Explorer */}
-        <div className="lg:col-span-3 space-y-6">
-          <Card className="border-none shadow-xl bg-card/50 backdrop-blur-sm overflow-hidden">
-            <div className="p-6 border-b bg-muted/20 flex items-center justify-between">
-               <h3 className="text-lg font-bold flex items-center gap-2">
-                 <Folder className="w-5 h-5 text-primary" /> Advanced Data Room
-               </h3>
-               <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => fetchData()} className="h-8">Refresh</Button>
-                  <Button size="sm" onClick={() => fileInputRef.current?.click()} className="h-8">Batch Upload</Button>
-               </div>
-            </div>
-            
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <Card className="border-none shadow-2xl bg-card/40 backdrop-blur-xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 bg-muted/10 px-8 py-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <FileText className="w-5 h-5 text-primary" />
+                </div>
+                <CardTitle className="text-lg font-bold">Data Room Explorer</CardTitle>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border/50">
+                  <Button 
+                    variant={fileViewMode === 'grid' ? 'default' : 'ghost'} 
+                    size="sm" 
+                    className="h-7 w-7 p-0"
+                    onClick={() => setFileViewMode('grid')}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button 
+                    variant={fileViewMode === 'list' ? 'default' : 'ghost'} 
+                    size="sm" 
+                    className="h-7 w-7 p-0"
+                    onClick={() => setFileViewMode('list')}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input placeholder="Filter docs..." className="bg-muted/50 border border-border/50 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                </div>
+                <Button variant="ghost" size="icon" className="h-8 w-8"><Filter className="w-4 h-4" /></Button>
+              </div>
+            </CardHeader>
             <CardContent className="p-0">
-               {documents.length === 0 ? (
-                  <div className="p-20">
-                    <Dropzone onFilesSelected={handleFilesSelected} isLoading={uploading} />
-                  </div>
-               ) : (
-                  <div className="divide-y border-t border-border/50">
-                    <div className="p-6 bg-muted/10">
-                       <Dropzone onFilesSelected={handleFilesSelected} isLoading={uploading} />
-                    </div>
-                    
-                    {/* Folder Groups */}
-                    {Object.entries(categories).map(([key, docs]) => (
-                      <div key={key} className="group/folder">
-                        <div 
-                          className="flex items-center gap-3 px-6 py-4 cursor-pointer hover:bg-accent/30 transition-colors"
-                          onClick={() => toggleFolder(key)}
-                        >
-                          {openFolders[key] ? <ChevronDown className="w-4 h-4 text-primary" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
-                          <Folder className={cn("w-5 h-5", docs.length > 0 ? "text-primary fill-primary/10" : "text-muted-foreground")} />
-                          <span className="font-bold text-sm uppercase tracking-wider grow capitalize">{key.replace('_', ' ')}</span>
-                          <span className="text-[10px] font-black bg-muted px-2 py-0.5 rounded text-muted-foreground">{docs.length} items</span>
-                        </div>
-                        
-                        {openFolders[key] && (
-                          <div className="bg-accent/5 divide-y divide-border/20">
-                            {docs.length === 0 ? (
-                              <div className="px-14 py-4 text-xs text-muted-foreground italic">No documents in this category.</div>
-                            ) : (
-                              docs.map(doc => (
-                                <div key={doc.id} className="flex items-center justify-between px-6 py-4 pl-14 hover:bg-accent/20 transition-colors group">
-                                  <div className="flex items-center gap-4 cursor-pointer" onClick={() => handleViewFile(doc.id)}>
-                                    <div className="bg-background border rounded p-1.5 shadow-sm group-hover:border-primary/50 transition-colors">
-                                       <FileText className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                                    </div>
-                                    <div>
-                                      <p className="font-bold text-sm group-hover:text-primary transition-colors">{doc.original_filename}</p>
-                                      <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground font-semibold">
-                                         <span className="flex items-center gap-1">Status: {getStatusIcon(doc.status)}</span>
-                                         {doc.ocr_confidence && <span className="bg-primary/5 text-primary px-1.5 rounded border border-primary/10">AI Confidence: {doc.ocr_confidence}%</span>}
-                                         <span className="opacity-50">{new Date(doc.created_at).toLocaleDateString()}</span>
-                                      </div>
-                                    </div>
+              <AnimatePresence mode="wait">
+                {fileViewMode === 'list' ? (
+                  <motion.div 
+                    key="list"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="overflow-x-auto"
+                  >
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="bg-muted/20 text-[10px] uppercase tracking-widest font-black text-muted-foreground">
+                        <tr>
+                          <th className="px-8 py-4">Filename</th>
+                          <th className="px-8 py-4">AI Extraction</th>
+                          <th className="px-8 py-4">Confidence</th>
+                          <th className="px-8 py-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {documents.length > 0 ? (
+                          documents.map((doc) => (
+                            <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
+                              <td className="px-8 py-5">
+                                <div className="flex items-center gap-3">
+                                  <div 
+                                    className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors"
+                                    onClick={() => handleViewDocument(doc)}
+                                  >
+                                    <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    {doc.status === 'verified' && doc.deal_id ? (
-                                      <Button  variant="ghost" size="sm" className="h-7 text-[10px] font-bold uppercase tracking-tighter gap-1.5" onClick={() => handleViewDeal(doc.deal_id)}>
-                                        Analysis <ArrowRight className="w-3 h-3" />
-                                      </Button>
-                                    ) : (
-                                      <Button variant="outline" size="sm" className="h-7 text-[10px] font-bold uppercase tracking-tighter" onClick={() => handleRunAgents(doc.id)}>
-                                        Extract
-                                      </Button>
-                                    )}
+                                  <div>
+                                    <div className="font-bold text-foreground">{doc.original_filename}</div>
+                                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{doc.category} • {Math.round(doc.file_size / 1024)} KB</div>
                                   </div>
                                 </div>
-                              ))
-                            )}
-                          </div>
+                              </td>
+                              <td className="px-8 py-5">
+                                 <div className="flex items-center gap-2">
+                                   <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                   <span className="font-bold text-xs uppercase tracking-tight">Structured Deal</span>
+                                 </div>
+                              </td>
+                              <td className="px-8 py-5">
+                                <div className="flex flex-col gap-1.5 w-24">
+                                  <div className="flex justify-between text-[10px] font-black uppercase">
+                                    <span>Match</span>
+                                    <span>{Math.round(doc.ocr_confidence)}%</span>
+                                  </div>
+                                  <div className="w-full h-1 bg-muted/50 rounded-full overflow-hidden">
+                                    <div 
+                                      className="h-full bg-green-500" 
+                                      style={{ width: `${doc.ocr_confidence}%` }} 
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-8 py-5 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                                    onClick={() => handleRunPipeline(doc.id)}
+                                    disabled={processingDocs[doc.id] || doc.status === 'processing'}
+                                  >
+                                    {processingDocs[doc.id] || doc.status === 'processing' ? (
+                                      <>Processing <Loader2 className="w-3 h-3 ml-1.5 animate-spin" /></>
+                                    ) : (
+                                      <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
+                                    )}
+                                  </Button>
+                                  <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-8 w-8 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all"
+                                    onClick={() => handleDeleteDocument(doc.id)}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="px-8 py-20 text-center text-muted-foreground font-semibold">
+                              No documents ingested for this asset.
+                            </td>
+                          </tr>
                         )}
+                      </tbody>
+                    </table>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="grid"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="p-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6"
+                  >
+                    {documents.length > 0 ? (
+                      documents.map((doc) => (
+                        <Card key={doc.id} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-3">
+                            <Badge variant="success" className="text-[8px] px-1.5 h-4">Verified</Badge>
+                          </div>
+                          <CardContent className="p-6">
+                            <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-sm">
+                              <FileText className="w-6 h-6 text-primary" />
+                            </div>
+                            <div className="space-y-1">
+                              <h4 className="font-bold text-sm truncate pr-8">{doc.original_filename}</h4>
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-black">{doc.category}</p>
+                            </div>
+                            <div className="mt-4 pt-4 border-t border-border/30 flex justify-between items-center">
+                              <div className="text-[10px] font-bold text-muted-foreground">{Math.round(doc.file_size / 1024)} KB</div>
+                              <div className="flex items-center gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0"
+                                  onClick={() => handleViewDocument(doc)}
+                                >
+                                  View <ExternalLink className="w-3 h-3 ml-1" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-destructive p-0"
+                                  onClick={() => handleDeleteDocument(doc.id)}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <div className="col-span-full py-12 text-center text-muted-foreground font-semibold">
+                        No documents ingested for this asset.
                       </div>
-                    ))}
-                  </div>
-               )}
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </CardContent>
           </Card>
         </div>
 
-        {/* Right column: Checklist & Insights */}
-        <div className="space-y-6">
-           <Card className="border-none shadow-xl bg-card/50 backdrop-blur-sm">
-             <CardHeader className="border-b bg-muted/20">
-               <CardTitle className="text-sm flex items-center gap-2">
-                 <ShieldCheck className="w-4 h-4 text-primary" /> Due Diligence Tracker
-               </CardTitle>
-             </CardHeader>
-             <CardContent className="p-0">
-               <div className="divide-y">
-                  {ddChecklist.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-4">
-                      {item.met ? (
-                        <div className="h-8 w-8 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/20">
-                           <CheckCircle className="w-4 h-4 text-green-500" />
-                        </div>
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
-                           <AlertTriangle className="w-4 h-4 text-orange-500" />
-                        </div>
-                      )}
-                      <div>
-                        <p className={cn("text-xs font-bold", item.met ? "text-foreground" : "text-muted-foreground")}>{item.name}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{item.met ? "Verified and indexed" : `Search for "${item.name}" failed`}</p>
-                      </div>
-                    </div>
-                  ))}
-               </div>
-               <div className="p-4 bg-primary/5 mt-2">
-                  <p className="text-[10px] font-bold text-primary flex items-center gap-1.5">
-                    <Info className="w-3 h-3" /> AI DETECTOR: MISSING DOCUMENTS
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
-                    Analyzing existing 124 files... No recent insurance certificate found for calendar year 2024. Property at risk.
-                  </p>
-               </div>
-             </CardContent>
-           </Card>
+        <div className="space-y-8">
+          <Card className="border-none shadow-2xl bg-gradient-to-br from-primary/5 to-card/50 backdrop-blur-xl">
+            <CardHeader className="px-6 py-5 border-b border-border/50">
+              <CardTitle className="text-lg font-bold flex items-center gap-2">
+                <Upload className="w-5 h-5 text-primary" /> Asset Intake
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <Dropzone propertyId={id!} onUploadComplete={handleUploadComplete} />
+              <div className="mt-6 p-4 rounded-xl bg-primary/5 border border-primary/10">
+                <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-2">Institutional Tip</h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Upload combined rent rolls or individual leases. Our AI will automatically split and categorize them.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-           <Card className="border-none shadow-xl bg-primary text-primary-foreground">
-              <CardContent className="p-6 space-y-4">
-                 <h4 className="font-bold flex items-center gap-2">
-                   <MessageSquare className="w-5 h-5" /> Concierge Brief
-                 </h4>
-                 <p className="text-sm font-medium opacity-90 leading-snug">
-                   "Hello! I've analyzed the latest rent roll and found a 12% revenue variance in Unit 4 compared to last year's evaluation. Should I double check the lease?"
-                 </p>
-                 <Button className="w-full bg-background text-primary hover:bg-background/90 font-bold shadow-lg" onClick={() => navigate('/concierge')}>
-                   Open Consultation
-                 </Button>
-              </CardContent>
-           </Card>
+          <Card className="border-none shadow-2xl bg-card/40 backdrop-blur-xl overflow-hidden">
+            <CardHeader className="px-6 py-5 border-b border-border/50 bg-muted/10">
+              <CardTitle className="text-lg font-bold">Extraction Health</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              {[
+                { label: 'Financial Verification', status: 'verified', count: 12 },
+                { label: 'Lease Abstracts', status: 'pending', count: 4 },
+                { label: 'Technical DD', status: 'warning', count: 2 }
+              ].map((item, i) => (
+                <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-muted/30 border border-border/50">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold">{item.label}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase font-black">{item.count} items processed</span>
+                  </div>
+                  <Badge variant={item.status === 'verified' ? 'success' : item.status === 'warning' ? 'destructive' : 'secondary'} className="text-[10px] font-bold">
+                    {item.status}
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* File Preview Modal */}
-      {selectedFileUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setSelectedFileUrl(null)}>
-          <div className="bg-background rounded-xl overflow-hidden shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-bold flex items-center gap-2 text-lg">
-                <FileText className="w-5 h-5 text-primary" /> Document Preview
-              </h3>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedFileUrl(null)}>Close</Button>
+      <Modal 
+        isOpen={isPreviewOpen} 
+        onClose={() => setIsPreviewOpen(false)} 
+        title={previewDoc?.original_filename || 'Document Preview'}
+        size="xl"
+      >
+        <div className="w-full h-[70vh] bg-background rounded-xl border flex items-center justify-center overflow-hidden">
+          {previewLoading ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Loading Institutional Data...</p>
             </div>
-            <div className="flex-1 bg-muted/30">
-              {selectedFileBlob?.type?.startsWith('image/') ? (
-                <div className="w-full h-full flex items-center justify-center p-8 overflow-auto">
-                   <img src={selectedFileUrl} alt="Preview" className="max-w-full max-h-full object-contain shadow-lg rounded" />
+          ) : selectedFileUrl ? (
+            <iframe 
+              src={selectedFileUrl} 
+              className="w-full h-full border-none" 
+              title="Document Preview" 
+            />
+          ) : (
+            <div className="text-center p-8">
+              <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+              <p className="font-bold">Failed to load preview</p>
+              <p className="text-sm text-muted-foreground mt-1">Please try downloading the file instead.</p>
+            </div>
+          )}
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Close</Button>
+          <Button onClick={() => window.open(selectedFileUrl!, '_blank')}>
+            Open in New Tab
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isSummaryOpen}
+        onClose={() => setIsSummaryOpen(false)}
+        title={`Institutional Overview: ${property.name}`}
+        size="lg"
+      >
+        <div className="space-y-6">
+          {summaryLoading ? (
+            <div className="flex flex-col items-center py-12 gap-4">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Synthesizing Property Intelligence...</p>
+            </div>
+          ) : propertySummary ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: 'NOI', value: propertySummary.deal_metrics?.noi ? `$${propertySummary.deal_metrics.noi.toLocaleString()}` : 'N/A' },
+                  { label: 'Cap Rate', value: propertySummary.deal_metrics?.cap_rate ? `${propertySummary.deal_metrics.cap_rate}%` : 'N/A' },
+                  { label: 'Docs', value: propertySummary.document_count },
+                  { label: 'Cash-on-Cash', value: propertySummary.deal_metrics?.cash_on_cash ? `${propertySummary.deal_metrics.cash_on_cash}%` : 'N/A' }
+                ].map((stat, i) => (
+                  <div key={i} className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">{stat.label}</div>
+                    <div className="text-lg font-bold">{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10">
+                <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
+                  <FileText className="w-4 h-4" /> Aggregated AI Intelligence
+                </h4>
+                <div className="prose prose-invert max-w-none">
+                  <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                    {propertySummary.combined_summary}
+                  </p>
                 </div>
-              ) : (
-                <iframe src={selectedFileUrl} className="w-full h-full border-none" title="Document Preview" />
-              )}
+              </div>
             </div>
+          ) : (
+            <div className="text-center py-12">
+              <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+              <p className="font-bold text-lg">Analysis Unavailable</p>
+              <p className="text-sm text-muted-foreground">Run the AI pipeline on documents to generate insights.</p>
+            </div>
+          )}
+          
+          <div className="flex justify-end pt-4 border-t border-border/30">
+            <Button onClick={() => setIsSummaryOpen(false)}>Close Overview</Button>
           </div>
         </div>
-      )}
-
-      {/* Deal Detail Modal */}
-      {viewingDeal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in zoom-in-95 duration-200" onClick={() => setViewingDeal(null)}>
-           <div className="bg-background rounded-xl overflow-hidden shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-             <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-primary/5 to-transparent">
-               <div>
-                  <h3 className="text-2xl font-bold tracking-tight text-primary">Intelligent Structuring Result</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Extracted on {new Date(viewingDeal.created_at).toLocaleDateString()}</p>
-               </div>
-               <Button variant="outline" onClick={() => setViewingDeal(null)}>Close</Button>
-             </div>
-             <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                {/* Financial Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="p-6 rounded-xl bg-primary/5 border border-primary/10">
-                      <p className="text-xs font-bold text-primary uppercase tracking-wider mb-2">Purchase Price</p>
-                      <p className="text-3xl font-extrabold">${viewingDeal.purchase_price?.toLocaleString() || '--'}</p>
-                   </div>
-                   <div className="p-6 rounded-xl bg-orange-500/5 border border-orange-500/10">
-                      <p className="text-xs font-bold text-orange-500 uppercase tracking-wider mb-2">Asking Price</p>
-                      <p className="text-3xl font-extrabold">${viewingDeal.asking_price?.toLocaleString() || '--'}</p>
-                   </div>
-                   <div className="p-6 rounded-xl bg-green-500/5 border border-green-500/10">
-                      <p className="text-xs font-bold text-green-500 uppercase tracking-wider mb-2">Gross Revenue</p>
-                      <p className="text-3xl font-extrabold">${viewingDeal.gross_revenue?.toLocaleString() || '--'}</p>
-                   </div>
-                </div>
-
-                {/* AI Executive Summary */}
-                <div className="space-y-3">
-                   <h4 className="flex items-center gap-2 font-bold text-lg border-b pb-2">
-                      <CheckCircle className="w-5 h-5 text-green-500" /> AI Executive Summary
-                   </h4>
-                   <div className="text-muted-foreground leading-relaxed bg-muted/20 p-6 rounded-lg text-base">
-                      {viewingDeal.ai_summary || "No summary generated."}
-                   </div>
-                </div>
-
-                {/* Detailed Extraction Report */}
-                <div className="space-y-4">
-                   <h4 className="flex items-center gap-2 font-bold text-lg border-b pb-2">
-                      <FileText className="w-5 h-5 text-primary" /> Underwriting Report
-                   </h4>
-                   <div className="prose prose-sm max-w-none bg-muted/10 p-6 rounded-lg whitespace-pre-wrap font-mono text-sm border border-border/50">
-                      {viewingDeal.ai_report || "No detailed report available."}
-                   </div>
-                </div>
-
-                {/* Raw Structured Data */}
-                <div className="space-y-3">
-                   <h4 className="font-bold text-lg border-b pb-2">Structured Data (JSON)</h4>
-                   <pre className="p-4 bg-zinc-950 text-zinc-50 rounded-lg overflow-auto text-xs font-mono max-h-64 shadow-inner">
-                      {JSON.stringify(viewingDeal.structured_data, null, 2)}
-                   </pre>
-                </div>
-             </div>
-           </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
-};
+}

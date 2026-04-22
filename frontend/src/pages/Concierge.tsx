@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, ArrowLeft, Building2, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Building2, Loader2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '../components/ui/components';
+import { Button, Input, Card } from '../components/ui/components';
 import { apiClient } from '../api/client';
 
 interface Source {
@@ -19,6 +19,12 @@ interface Message {
   sources?: Source[];
 }
 
+interface Property {
+  id: number;
+  name: string;
+  address: string;
+}
+
 export default function Concierge() {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -32,7 +38,23 @@ export default function Concierge() {
    const [isTyping, setIsTyping] = useState(false);
   const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
   const [selectedFileBlob, setSelectedFileBlob] = useState<Blob | null>(null);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Fetch available properties on mount
+  useEffect(() => {
+    const fetchProperties = async () => {
+      try {
+        const res = await apiClient.get('/properties/');
+        const items = res.data.items || res.data || [];
+        setProperties(items);
+      } catch (err) {
+        console.error('Failed to fetch properties', err);
+      }
+    };
+    fetchProperties();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -56,7 +78,7 @@ export default function Concierge() {
     try {
       const res = await apiClient.post('/chat/', {
         message: userMsg.content,
-        property_id: null // searching globally across tenant by default
+        property_id: selectedPropertyId, // scoped to selected property (null = all)
       });
 
       const aiMsg: Message = {
@@ -86,7 +108,7 @@ export default function Concierge() {
         responseType: 'blob'
       });
       
-      const blob = new Blob([response.data], { type: response.headers['content-type'] });
+      const blob = new Blob([response.data], { type: response.headers['content-type'] as string || 'application/octet-stream' });
       const url = window.URL.createObjectURL(blob);
       
       setSelectedFileBlob(blob);
@@ -98,9 +120,30 @@ export default function Concierge() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Investment Concierge</h1>
-        <p className="text-muted-foreground mt-1">Chat securely with your LangGraph agents and Pinecone RAG store.</p>
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Investment Concierge</h1>
+          <p className="text-muted-foreground mt-1">Chat securely with your LangGraph agents and Pinecone RAG store.</p>
+        </div>
+        
+        <div className="flex items-center gap-3 bg-card border border-primary/10 px-4 py-2 rounded-xl shadow-sm">
+          <Building2 className="w-4 h-4 text-primary" />
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Context Scoping</span>
+            <select 
+              value={selectedPropertyId || ''} 
+              onChange={(e) => setSelectedPropertyId(e.target.value ? Number(e.target.value) : null)}
+              className="bg-transparent border-none text-sm font-medium focus:ring-0 p-0 pr-8 appearance-none cursor-pointer"
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="">All Properties (Global)</option>
+              {properties.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <ChevronDown className="w-4 h-4 text-muted-foreground ml-[-24px] pointer-events-none" />
+        </div>
       </div>
 
       <Card className="flex-1 flex flex-col overflow-hidden border-primary/10 shadow-lg">

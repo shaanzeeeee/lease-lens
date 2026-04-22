@@ -53,10 +53,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Global exception caught: {exc}", exc_info=True)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "message": str(exc)},
+    )
+
 # Mount routers
 app.include_router(auth.router)
 app.include_router(documents.router)
-app.include_router(assets.router)
+app.include_router(assets.router, prefix="/api/properties")
 app.include_router(agents.router)
 app.include_router(chat.router)
 app.include_router(deals.router)
@@ -117,3 +126,5 @@ async def _seed_demo_data():
 
         await db.commit()
         logger.info("✅ Demo data seeded: admin@abelam.com / admin123")
+
+

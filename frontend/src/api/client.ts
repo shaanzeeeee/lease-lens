@@ -1,13 +1,10 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
 
 // Base API configuration
-const API_URL = 'http://localhost:8000/api';
+const API_URL = 'http://localhost:8001/api';
 
 export const apiClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 });
 
 // Request interceptor to add auth token

@@ -161,12 +161,31 @@ async def delete_document_vectors(doc_id: int) -> bool:
         return False
 
     try:
-        # Delete by ID prefix
-        # Note: Pinecone doesn't support prefix delete in all tiers
-        # This is a best-effort approach
-        ids_to_delete = [f"doc-{doc_id}-chunk-{i}" for i in range(100)]
-        index.delete(ids=ids_to_delete)
+        # Delete by metadata filter if supported, otherwise by ID
+        # Most modern Pinecone indexes support metadata filtering for deletes
+        index.delete(filter={"doc_id": {"$eq": doc_id}})
         return True
     except Exception as e:
-        logger.error(f"Vector delete failed: {e}")
+        logger.warning(f"Vector delete by filter failed: {e}. Falling back to ID-based delete.")
+        try:
+            # Fallback for older tiers: delete by ID (up to 250 chunks)
+            ids_to_delete = [f"doc-{doc_id}-chunk-{i}" for i in range(250)]
+            index.delete(ids=ids_to_delete)
+            return True
+        except Exception as e2:
+            logger.error(f"Fallback vector delete failed: {e2}")
+            return False
+
+
+async def delete_property_vectors(property_id: int) -> bool:
+    """Remove all vectors associated with a property."""
+    index = _get_pinecone_index()
+    if not index:
+        return False
+
+    try:
+        index.delete(filter={"property_id": {"$eq": property_id}})
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete property vectors: {e}")
         return False
