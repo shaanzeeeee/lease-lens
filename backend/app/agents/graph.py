@@ -20,9 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 def _route_after_validation(state: PipelineState) -> str:
-    """Route after validation: retry extraction or proceed to underwriting."""
+    """Route after validation: retry extraction, pause for HITL, or proceed to underwriting."""
     stage = state.get("stage", "underwriting")
     iterations = state.get("iterations", 0)
+    requires_human_review = state.get("requires_human_review", False)
+
+    if requires_human_review:
+        # Pause pipeline for Human-In-The-Loop
+        return END
 
     if stage == "extraction" and iterations < 3:
         return "extraction"
@@ -92,6 +97,7 @@ async def run_pipeline(
         "stage": "intake",
         "iterations": 0,
         "error": None,
+        "requires_human_review": False,
     }
 
     try:

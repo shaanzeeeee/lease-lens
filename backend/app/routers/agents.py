@@ -4,7 +4,7 @@ Agents router: Trigger and monitor the LangGraph document processing pipeline.
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +15,36 @@ from app.agents.graph import run_pipeline
 from app.services.ocr import extract_text_from_file
 from app.services.vectorstore import upsert_document
 from app.config import get_settings
+from app.worker import process_document_task
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 router = APIRouter(prefix="/api/agents", tags=["AI Agents"])
 
+active_connections: dict[int, list[WebSocket]] = {}
+
+async def notify_clients(property_id: int, message: dict):
+    if property_id in active_connections:
+        dead_connections = []
+        for connection in active_connections[property_id]:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                dead_connections.append(connection)
+        for dead in dead_connections:
+            active_connections[property_id].remove(dead)
+
+@router.websocket("/ws/pipeline/{property_id}")
+async def websocket_endpoint(websocket: WebSocket, property_id: int):
+    await websocket.accept()
+    if property_id not in active_connections:
+        active_connections[property_id] = []
+    active_connections[property_id].append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        active_connections[property_id].remove(websocket)
 
 async def _process_document(doc_id: int, tenant_id: int):
     """Background task: run the full ingestion + agent pipeline for a document."""
@@ -39,6 +64,7 @@ async def _process_document(doc_id: int, tenant_id: int):
 
                 with open(doc.file_path, "rb") as f:
                     file_bytes = f.read()
+                await notify_clients(doc.property_id, {"document_id": doc_id, "status": "processing", "stage": "ocr"})
                 ocr_result = await extract_text_from_file(file_bytes, doc.file_type or "pdf")
 
                 doc.ocr_text = ocr_result["text"]
@@ -55,6 +81,7 @@ async def _process_document(doc_id: int, tenant_id: int):
 
                 await db.commit()
 
+            await notify_clients(doc.property_id, {"document_id": doc_id, "status": "processing", "stage": "ai_pipeline"})
             # Step 2: Run agent pipeline
             pipeline_result = await run_pipeline(
                 document_id=doc.id,
@@ -69,8 +96,16 @@ async def _process_document(doc_id: int, tenant_id: int):
             doc.ai_category = pipeline_result.get("category")
             doc.category = pipeline_result.get("category", doc.category)
             doc.ai_summary = pipeline_result.get("summary", "")
-            doc.status = DocumentStatus.VERIFIED.value
             doc.updated_at = datetime.utcnow()
+
+            if pipeline_result.get("requires_human_review"):
+                doc.status = DocumentStatus.NEEDS_REVIEW.value
+                await db.commit()
+                logger.info(f"Doc {doc_id} pipeline halted for human review")
+                await notify_clients(doc.property_id, {"document_id": doc_id, "status": "needs_review", "stage": "human_review"})
+                return
+
+            doc.status = DocumentStatus.VERIFIED.value
 
             # Step 4: Create or update Deal
             extracted = pipeline_result.get("extracted_data", {})
@@ -116,6 +151,7 @@ async def _process_document(doc_id: int, tenant_id: int):
 
             await db.commit()
             logger.info(f"Pipeline complete for doc {doc_id}")
+            await notify_clients(doc.property_id, {"document_id": doc_id, "status": "verified", "stage": "complete"})
 
         except Exception as e:
             logger.error(f"Pipeline failed for doc {doc_id}: {e}")
@@ -129,6 +165,8 @@ async def _process_document(doc_id: int, tenant_id: int):
                     await db.commit()
             except Exception:
                 pass
+            if 'doc' in locals() and doc:
+                await notify_clients(doc.property_id, {"document_id": doc_id, "status": "failed", "stage": "error"})
 
 
 @router.post("/process/{doc_id}")
@@ -151,7 +189,8 @@ async def process_document(
     doc.status = DocumentStatus.PROCESSING.value
     await db.commit()
 
-    background_tasks.add_task(_process_document, doc_id, current_user.tenant_id)
+    # Trigger Celery Task
+    process_document_task.delay(doc_id, current_user.tenant_id)
 
     return {"message": "Processing started", "document_id": doc_id, "status": "processing"}
 
@@ -183,7 +222,7 @@ async def process_all_documents(
 
     for doc in docs:
         doc.status = DocumentStatus.PROCESSING.value
-        background_tasks.add_task(_process_document, doc.id, current_user.tenant_id)
+        process_document_task.delay(doc.id, current_user.tenant_id)
 
     await db.commit()
 

@@ -37,6 +37,7 @@ class PipelineState(TypedDict):
     summary: str
 
     # Pipeline control
-    stage: str  # intake | extraction | validation | underwriting | reporting | complete
+    stage: str  # intake | extraction | validation | underwriting | reporting | complete | human_review
     iterations: int  # Safety counter to prevent infinite loops
     error: Optional[str]
+    requires_human_review: bool

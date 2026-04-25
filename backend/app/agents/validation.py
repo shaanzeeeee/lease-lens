@@ -78,10 +78,17 @@ async def validation_agent(state: PipelineState) -> dict:
 
     # Proceed to underwriting (even with errors after max retries)
     if errors:
-        logger.warning(f"[Validation] Proceeding with {len(errors)} unresolved issues after {iterations} iterations")
+        logger.warning(f"[Validation] Halting pipeline for HITL review. {len(errors)} unresolved issues after {iterations} iterations")
+        return {
+            "messages": [("system", f"Validation: Halting for human review due to {len(errors)} unresolved issues.")],
+            "validation_errors": errors,
+            "stage": "human_review",
+            "requires_human_review": True,
+        }
 
     return {
-        "messages": [("system", f"Validation: {'Passed' if not errors else f'{len(errors)} issues accepted'}. Proceeding to underwriting.")],
+        "messages": [("system", f"Validation: Passed. Proceeding to underwriting.")],
         "validation_errors": errors,
         "stage": "underwriting",
+        "requires_human_review": False,
     }

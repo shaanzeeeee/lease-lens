@@ -7,10 +7,11 @@ import {
   Upload, CheckCircle2, AlertCircle, 
   Search, ExternalLink, Calculator,
   TrendingUp, Wallet, ArrowUpRight,
-  Filter, LayoutGrid, List, Trash2, Loader2
+  Filter, LayoutGrid, List, Trash2, Loader2, MessageSquare, Send, X
 } from 'lucide-react';
 import { Dropzone } from '../components/ui/Dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -23,11 +24,35 @@ export default function PropertyDetail() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [previewDeal, setPreviewDeal] = useState<any>(null);
+  const [isReviewMode, setIsReviewMode] = useState(false);
+  const [editableDealData, setEditableDealData] = useState<any>({});
   const [propertySummary, setPropertySummary] = useState<any>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [processingDocs, setProcessingDocs] = useState<Record<number, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('All');
 
+  // Pro-Forma States
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [rentGrowth, setRentGrowth] = useState(3);
+  const [vacancyRate, setVacancyRate] = useState(5);
+  const [capexPerUnit, setCapexPerUnit] = useState(250);
+
+  // Copilot States
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // Mock Rent Roll Data
+  const mockRentRoll = [
+    { id: 1, unit: '101', tenant: 'Acme Corp', start: '2023-01-01', end: '2026-12-31', rent: 4500, market: 5000 },
+    { id: 2, unit: '102', tenant: 'Global Tech', start: '2024-05-01', end: '2025-04-30', rent: 5200, market: 5000 },
+    { id: 3, unit: '201', tenant: 'Smith LLC', start: '2022-03-01', end: '2024-02-28', rent: 3800, market: 4800 },
+    { id: 4, unit: '202', tenant: 'Vacant', start: '-', end: '-', rent: 0, market: 4800 },
+    { id: 5, unit: 'Retail 1', tenant: 'Starbucks', start: '2020-01-01', end: '2030-12-31', rent: 12000, market: 12500 }
+  ];
 
     const fetchData = async () => {
       setLoading(true);
@@ -64,6 +89,39 @@ export default function PropertyDetail() {
 
   useEffect(() => {
     fetchData();
+    
+    // WebSocket connection for real-time pipeline updates
+    const wsUrl = `ws://localhost:8000/api/agents/ws/pipeline/${id}`;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Pipeline status update:", data);
+        
+        // Optimistic UI update
+        setDocuments(prevDocs => 
+          prevDocs.map(doc => 
+            doc.id === data.document_id 
+              ? { ...doc, status: data.status, ai_stage: data.stage } 
+              : doc
+          )
+        );
+        
+        // Clear processing state if complete, failed, or needs review
+        if (data.status === 'verified' || data.status === 'failed' || data.status === 'needs_review') {
+          setProcessingDocs(prev => ({ ...prev, [data.document_id]: false }));
+          // Refresh the data to get the new deal or review status
+          fetchData();
+        }
+      } catch (e) {
+        console.error("Error parsing WebSocket message", e);
+      }
+    };
+    
+    return () => {
+      ws.close();
+    };
   }, [id]);
 
   useEffect(() => {
@@ -76,8 +134,33 @@ export default function PropertyDetail() {
     fetchData();
   };
 
-  const handleViewDocument = async (doc: any) => {
+  const handleViewDocument = async (doc: any, reviewMode: boolean = false) => {
     setPreviewDoc(doc);
+    setIsReviewMode(reviewMode);
+    
+    const associatedDeal = deals.find(d => d.document_id === doc.id);
+    setPreviewDeal(associatedDeal || null);
+    
+    if (reviewMode) {
+      if (associatedDeal) {
+        setEditableDealData({
+          gross_revenue: associatedDeal.gross_revenue || '',
+          operating_expenses: associatedDeal.operating_expenses || '',
+          noi: associatedDeal.noi || '',
+          cap_rate: associatedDeal.cap_rate || ''
+        });
+      } else if (doc.extracted_data) {
+        setEditableDealData({
+          gross_revenue: doc.extracted_data.gross_revenue || '',
+          operating_expenses: doc.extracted_data.operating_expenses || '',
+          noi: doc.extracted_data.noi || '',
+          cap_rate: doc.extracted_data.cap_rate || ''
+        });
+      } else {
+        setEditableDealData({ gross_revenue: '', operating_expenses: '', noi: '', cap_rate: '' });
+      }
+    }
+
     setIsPreviewOpen(true);
     setPreviewLoading(true);
     try {
@@ -112,15 +195,24 @@ export default function PropertyDetail() {
     }
   };
 
+  const handleVerifyOverride = async () => {
+    if (!previewDoc) return;
+    try {
+      await apiClient.put(`/documents/${previewDoc.id}/approve`);
+      setDocuments(prev => prev.map(d => d.id === previewDoc.id ? { ...d, status: 'verified' } : d));
+      setIsPreviewOpen(false);
+      fetchData(); // Refresh everything
+    } catch (err) {
+      console.error('Failed to override', err);
+      alert('Failed to save manual overrides.');
+    }
+  };
+
   const handleRunPipeline = async (docId: number) => {
     setProcessingDocs(prev => ({ ...prev, [docId]: true }));
     try {
       await apiClient.post(`/agents/process/${docId}`);
-      // Poll for status or just refresh after a delay
-      setTimeout(() => {
-        fetchData();
-        setProcessingDocs(prev => ({ ...prev, [docId]: false }));
-      }, 3000);
+      // Polling is removed; we rely on WebSockets now for state updates.
     } catch (err) {
       console.error('Failed to start pipeline', err);
       alert('Failed to start AI pipeline');
@@ -142,6 +234,27 @@ export default function PropertyDetail() {
     }
   };
 
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setChatLoading(true);
+    try {
+      const res = await apiClient.post('/chat/', {
+        message: userMsg,
+        property_id: Number(id),
+        history: chatMessages
+      });
+      setChatMessages(prev => [...prev, { role: 'assistant', content: res.data.response }]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: "I'm sorry, I encountered an error. Please try again." }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   const [fileViewMode, setFileViewMode] = useState<'list' | 'grid'>('list');
 
   const institutionalStats = [
@@ -150,6 +263,14 @@ export default function PropertyDetail() {
     { label: 'Asset Value', value: '$4.6M', icon: Wallet, color: 'text-blue-500' },
     { label: 'Unit Count', value: property?.unit_count || 0, icon: Building2, color: 'text-orange-500' }
   ];
+
+  const categories = ['All', 'Rent Roll', ...Array.from(new Set(documents.map(d => d.category || 'Uncategorized')))];
+  
+  const filteredDocuments = documents.filter(doc => {
+    const matchesSearch = doc.original_filename?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.category?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesTab = activeTab === 'All' || (doc.category || 'Uncategorized') === activeTab;
+    return matchesSearch && matchesTab;
+  });
 
   if (loading) {
     return (
@@ -265,14 +386,84 @@ export default function PropertyDetail() {
                 </div>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <input placeholder="Filter docs..." className="bg-muted/50 border border-border/50 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                  <input 
+                    placeholder="Filter docs..." 
+                    className="bg-muted/50 border border-border/50 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
                 <Button variant="ghost" size="icon" className="h-8 w-8"><Filter className="w-4 h-4" /></Button>
               </div>
             </CardHeader>
+            <div className="border-b border-border/50 bg-muted/5 px-8 flex overflow-x-auto no-scrollbar gap-2 pt-2">
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  onClick={() => setActiveTab(category)}
+                  className={`px-4 py-3 text-xs font-bold uppercase tracking-widest whitespace-nowrap border-b-2 transition-colors ${
+                    activeTab === category 
+                      ? 'border-primary text-primary' 
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
             <CardContent className="p-0">
               <AnimatePresence mode="wait">
-                {fileViewMode === 'list' ? (
+                {activeTab === 'Rent Roll' ? (
+                  <motion.div 
+                    key="rent-roll"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="overflow-x-auto p-4"
+                  >
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="bg-muted/20 text-[10px] uppercase tracking-widest font-black text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3">Unit</th>
+                          <th className="px-4 py-3">Tenant</th>
+                          <th className="px-4 py-3">Start Date</th>
+                          <th className="px-4 py-3">End Date</th>
+                          <th className="px-4 py-3 text-right">Rent ($)</th>
+                          <th className="px-4 py-3 text-right">Market Rent ($)</th>
+                          <th className="px-4 py-3 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {mockRentRoll.map((row) => {
+                          const isBelowMarket = row.rent < row.market && row.rent > 0;
+                          return (
+                            <tr key={row.id} className="hover:bg-primary/5 transition-colors">
+                              <td className="px-4 py-3 font-bold">{row.unit}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{row.tenant}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{row.start}</td>
+                              <td className="px-4 py-3 font-bold">{row.end}</td>
+                              <td className={`px-4 py-3 text-right font-bold ${isBelowMarket ? 'text-orange-500' : ''}`}>
+                                ${row.rent.toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 text-right text-muted-foreground">
+                                ${row.market.toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {row.rent === 0 ? (
+                                  <Badge variant="destructive" className="text-[10px] uppercase">Vacant</Badge>
+                                ) : isBelowMarket ? (
+                                  <Badge variant="warning" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px] uppercase">Below Market</Badge>
+                                ) : (
+                                  <Badge variant="success" className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] uppercase">Stable</Badge>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </motion.div>
+                ) : fileViewMode === 'list' ? (
                   <motion.div 
                     key="list"
                     initial={{ opacity: 0 }}
@@ -290,8 +481,8 @@ export default function PropertyDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/30">
-                        {documents.length > 0 ? (
-                          documents.map((doc) => (
+                        {filteredDocuments.length > 0 ? (
+                          filteredDocuments.map((doc) => (
                             <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
                               <td className="px-8 py-5">
                                 <div className="flex items-center gap-3">
@@ -330,14 +521,23 @@ export default function PropertyDetail() {
                               <td className="px-8 py-5 text-right">
                                 <div className="flex items-center justify-end gap-2">
                                   <Button 
-                                    variant="outline" 
+                                    variant={doc.status === 'needs_review' ? 'destructive' : 'outline'} 
                                     size="sm" 
                                     className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
-                                    onClick={() => handleRunPipeline(doc.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (doc.status === 'needs_review') {
+                                        handleViewDocument(doc, true);
+                                      } else {
+                                        handleRunPipeline(doc.id);
+                                      }
+                                    }}
                                     disabled={processingDocs[doc.id] || doc.status === 'processing'}
                                   >
                                     {processingDocs[doc.id] || doc.status === 'processing' ? (
                                       <>Processing <Loader2 className="w-3 h-3 ml-1.5 animate-spin" /></>
+                                    ) : doc.status === 'needs_review' ? (
+                                      <>Review <AlertCircle className="w-3 h-3 ml-1.5" /></>
                                     ) : (
                                       <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
                                     )}
@@ -357,7 +557,7 @@ export default function PropertyDetail() {
                         ) : (
                           <tr>
                             <td colSpan={4} className="px-8 py-20 text-center text-muted-foreground font-semibold">
-                              No documents ingested for this asset.
+                              No documents match your filter criteria.
                             </td>
                           </tr>
                         )}
@@ -372,8 +572,8 @@ export default function PropertyDetail() {
                     exit={{ opacity: 0 }}
                     className="p-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6"
                   >
-                    {documents.length > 0 ? (
-                      documents.map((doc) => (
+                    {filteredDocuments.length > 0 ? (
+                      filteredDocuments.map((doc) => (
                         <Card key={doc.id} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
                           <div className="absolute top-0 right-0 p-3">
                             <Badge variant="success" className="text-[8px] px-1.5 h-4">Verified</Badge>
@@ -393,7 +593,7 @@ export default function PropertyDetail() {
                                   variant="ghost" 
                                   size="sm" 
                                   className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0"
-                                  onClick={() => handleViewDocument(doc)}
+                                  onClick={() => handleViewDocument(doc, doc.status === 'needs_review')}
                                 >
                                   View <ExternalLink className="w-3 h-3 ml-1" />
                                 </Button>
@@ -412,7 +612,7 @@ export default function PropertyDetail() {
                       ))
                     ) : (
                       <div className="col-span-full py-12 text-center text-muted-foreground font-semibold">
-                        No documents ingested for this asset.
+                        No documents match your filter criteria.
                       </div>
                     )}
                   </motion.div>
@@ -469,33 +669,115 @@ export default function PropertyDetail() {
         isOpen={isPreviewOpen} 
         onClose={() => setIsPreviewOpen(false)} 
         title={previewDoc?.original_filename || 'Document Preview'}
-        size="xl"
+        size={(previewDeal || isReviewMode) ? "full" : "xl"}
       >
-        <div className="w-full h-[70vh] bg-background rounded-xl border flex items-center justify-center overflow-hidden">
-          {previewLoading ? (
-            <div className="flex flex-col items-center gap-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Loading Institutional Data...</p>
-            </div>
-          ) : selectedFileUrl ? (
-            <iframe 
-              src={selectedFileUrl} 
-              className="w-full h-full border-none" 
-              title="Document Preview" 
-            />
-          ) : (
-            <div className="text-center p-8">
-              <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
-              <p className="font-bold">Failed to load preview</p>
-              <p className="text-sm text-muted-foreground mt-1">Please try downloading the file instead.</p>
+        <div className={`grid gap-6 h-[70vh] ${(previewDeal || isReviewMode) ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="w-full h-full bg-background rounded-xl border flex items-center justify-center overflow-hidden">
+            {previewLoading ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Loading Institutional Data...</p>
+              </div>
+            ) : selectedFileUrl ? (
+              <iframe 
+                src={selectedFileUrl} 
+                className="w-full h-full border-none" 
+                title="Document Preview" 
+              />
+            ) : (
+              <div className="text-center p-8">
+                <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+                <p className="font-bold">Failed to load preview</p>
+                <p className="text-sm text-muted-foreground mt-1">Please try downloading the file instead.</p>
+              </div>
+            )}
+          </div>
+
+          {(previewDeal || isReviewMode) && (
+            <div className="w-full h-full overflow-y-auto pr-2 flex flex-col gap-6">
+              <div>
+                <h3 className="text-lg font-black uppercase tracking-tight mb-1 text-foreground">
+                  {isReviewMode ? 'Human-In-The-Loop Review' : 'AI Extracted Deal Metrics'}
+                </h3>
+                <p className="text-xs text-muted-foreground uppercase font-bold tracking-widest">
+                  {isReviewMode ? 'Validate and override AI extractions below.' : 'Structured data from document analysis.'}
+                </p>
+              </div>
+
+              {isReviewMode ? (
+                <div className="space-y-4 flex-1">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted-foreground">Gross Revenue ($)</label>
+                      <input 
+                        type="number" 
+                        value={editableDealData.gross_revenue || ''} 
+                        onChange={e => setEditableDealData({...editableDealData, gross_revenue: e.target.value})}
+                        className="w-full bg-muted/30 border border-border/50 rounded-lg px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted-foreground">Operating Expenses ($)</label>
+                      <input 
+                        type="number" 
+                        value={editableDealData.operating_expenses || ''} 
+                        onChange={e => setEditableDealData({...editableDealData, operating_expenses: e.target.value})}
+                        className="w-full bg-muted/30 border border-border/50 rounded-lg px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted-foreground">NOI ($)</label>
+                      <input 
+                        type="number" 
+                        value={editableDealData.noi || ''} 
+                        onChange={e => setEditableDealData({...editableDealData, noi: e.target.value})}
+                        className="w-full bg-muted/30 border border-border/50 rounded-lg px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted-foreground">Cap Rate (%)</label>
+                      <input 
+                        type="number" 
+                        value={editableDealData.cap_rate || ''} 
+                        onChange={e => setEditableDealData({...editableDealData, cap_rate: e.target.value})}
+                        className="w-full bg-muted/30 border border-border/50 rounded-lg px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">NOI</div>
+                    <div className="text-lg font-bold">${previewDeal?.noi?.toLocaleString() || 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">Cap Rate</div>
+                    <div className="text-lg font-bold">{previewDeal?.cap_rate ? `${previewDeal.cap_rate}%` : 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">Gross Revenue</div>
+                    <div className="text-lg font-bold">${previewDeal?.gross_revenue?.toLocaleString() || 'N/A'}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">Opex</div>
+                    <div className="text-lg font-bold">${previewDeal?.operating_expenses?.toLocaleString() || 'N/A'}</div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-border/50">
           <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Close</Button>
-          <Button onClick={() => window.open(selectedFileUrl!, '_blank')}>
+          <Button variant="outline" onClick={() => window.open(selectedFileUrl!, '_blank')}>
             Open in New Tab
           </Button>
+          {isReviewMode && (
+            <Button onClick={handleVerifyOverride} className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold uppercase tracking-widest text-[10px]">
+              Save & Verify
+            </Button>
+          )}
         </div>
       </Modal>
 
@@ -503,7 +785,7 @@ export default function PropertyDetail() {
         isOpen={isSummaryOpen}
         onClose={() => setIsSummaryOpen(false)}
         title={`Institutional Overview: ${property.name}`}
-        size="lg"
+        size="full"
       >
         <div className="space-y-6">
           {summaryLoading ? (
@@ -512,29 +794,77 @@ export default function PropertyDetail() {
               <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Synthesizing Property Intelligence...</p>
             </div>
           ) : propertySummary ? (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { label: 'NOI', value: propertySummary.deal_metrics?.noi ? `$${propertySummary.deal_metrics.noi.toLocaleString()}` : 'N/A' },
-                  { label: 'Cap Rate', value: propertySummary.deal_metrics?.cap_rate ? `${propertySummary.deal_metrics.cap_rate}%` : 'N/A' },
-                  { label: 'Docs', value: propertySummary.document_count },
-                  { label: 'Cash-on-Cash', value: propertySummary.deal_metrics?.cash_on_cash ? `${propertySummary.deal_metrics.cash_on_cash}%` : 'N/A' }
-                ].map((stat, i) => (
-                  <div key={i} className="p-4 rounded-xl bg-muted/30 border border-border/50">
-                    <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">{stat.label}</div>
-                    <div className="text-lg font-bold">{stat.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10">
-                <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
-                  <FileText className="w-4 h-4" /> Aggregated AI Intelligence
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column: Assumption Controls */}
+              <div className="lg:col-span-1 p-6 rounded-2xl bg-muted/20 border border-border/50 space-y-6">
+                <h4 className="text-xs font-black uppercase tracking-widest text-foreground flex items-center gap-2">
+                  <Calculator className="w-4 h-4" /> Live Pro-Forma Modeling
                 </h4>
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs font-bold">
+                      <label className="text-muted-foreground uppercase tracking-widest">Rent Growth</label>
+                      <span className="text-primary">{rentGrowth}%</span>
+                    </div>
+                    <input type="range" min="0" max="10" value={rentGrowth} onChange={e => setRentGrowth(Number(e.target.value))} className="w-full accent-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs font-bold">
+                      <label className="text-muted-foreground uppercase tracking-widest">Vacancy Rate</label>
+                      <span className="text-primary">{vacancyRate}%</span>
+                    </div>
+                    <input type="range" min="0" max="20" value={vacancyRate} onChange={e => setVacancyRate(Number(e.target.value))} className="w-full accent-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs font-bold">
+                      <label className="text-muted-foreground uppercase tracking-widest">CapEx / Unit</label>
+                      <span className="text-primary">${capexPerUnit}</span>
+                    </div>
+                    <input type="range" min="0" max="2000" step="50" value={capexPerUnit} onChange={e => setCapexPerUnit(Number(e.target.value))} className="w-full accent-primary" />
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-border/50">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
+                    <FileText className="w-4 h-4" /> AI Overview
+                  </h4>
+                  <p className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap line-clamp-6 hover:line-clamp-none transition-all">
                     {propertySummary.combined_summary}
                   </p>
+                </div>
+              </div>
+
+              {/* Right Column: Charts & Stats */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Current NOI', value: propertySummary.deal_metrics?.noi ? `$${propertySummary.deal_metrics.noi.toLocaleString()}` : 'N/A' },
+                    { label: 'Cap Rate', value: propertySummary.deal_metrics?.cap_rate ? `${propertySummary.deal_metrics.cap_rate}%` : 'N/A' },
+                    { label: 'Y5 Proj NOI', value: propertySummary.deal_metrics?.noi ? `$${Math.round(propertySummary.deal_metrics.noi * Math.pow(1 + (rentGrowth/100), 5)).toLocaleString()}` : 'N/A' },
+                    { label: 'Cash-on-Cash', value: propertySummary.deal_metrics?.cash_on_cash ? `${propertySummary.deal_metrics.cash_on_cash}%` : 'N/A' }
+                  ].map((stat, i) => (
+                    <div key={i} className="p-4 rounded-xl bg-muted/30 border border-border/50">
+                      <div className="text-[10px] font-black uppercase text-muted-foreground mb-1">{stat.label}</div>
+                      <div className="text-lg font-bold">{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-6 rounded-2xl bg-card border border-border/50">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-foreground mb-4">5-Year NOI Projection</h4>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={Array.from({length: 5}).map((_, i) => ({
+                        year: `Year ${i+1}`,
+                        noi: propertySummary.deal_metrics?.noi ? Math.round(propertySummary.deal_metrics.noi * Math.pow(1 + (rentGrowth/100), i) - ((vacancyRate/100) * propertySummary.deal_metrics.noi) - (capexPerUnit * (property?.unit_count || 0))) : 0
+                      }))}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} vertical={false} />
+                        <XAxis dataKey="year" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value/1000}k`} width={50} />
+                        <Tooltip formatter={(value: any) => `$${value.toLocaleString()}`} contentStyle={{backgroundColor: 'var(--card)', borderColor: 'var(--border)'}} />
+                        <Line type="monotone" dataKey="noi" stroke="#10b981" strokeWidth={3} dot={{r: 4, fill: '#10b981'}} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             </div>
@@ -551,6 +881,95 @@ export default function PropertyDetail() {
           </div>
         </div>
       </Modal>
+
+      {/* Copilot FAB */}
+      <button 
+        onClick={() => setIsCopilotOpen(true)}
+        className="fixed bottom-8 right-8 w-14 h-14 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-2xl hover:scale-105 transition-transform z-40"
+      >
+        <MessageSquare className="w-6 h-6" />
+      </button>
+
+      {/* Copilot Sidebar */}
+      <AnimatePresence>
+        {isCopilotOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50"
+              onClick={() => setIsCopilotOpen(false)}
+            />
+            <motion.div 
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              className="fixed top-0 right-0 h-full w-full max-w-md bg-card border-l border-border/50 z-50 shadow-2xl flex flex-col"
+            >
+              <div className="p-4 border-b border-border/50 flex items-center justify-between bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm">Property Copilot</h3>
+                    <p className="text-[10px] text-primary font-black uppercase tracking-widest">RAG Context: {property?.name}</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsCopilotOpen(false)} className="p-2 hover:bg-muted/50 rounded-lg transition-colors">
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-3 opacity-50">
+                    <MessageSquare className="w-12 h-12 text-muted-foreground" />
+                    <p className="text-sm font-bold">Ask anything about this property.</p>
+                    <p className="text-xs text-muted-foreground max-w-[200px]">The Copilot has read all verified documents in the Data Room.</p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-2xl p-4 text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted/50 border border-border/50'}`}>
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-muted/50 border border-border/50 rounded-2xl p-4 text-sm flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      Analyzing documents...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-border/50 bg-background">
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); handleSendChatMessage(); }}
+                  className="flex gap-2"
+                >
+                  <input 
+                    type="text" 
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask about leases, financials..." 
+                    className="flex-1 bg-muted/30 border border-border/50 rounded-xl px-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <Button type="submit" disabled={!chatInput.trim() || chatLoading} className="w-10 h-10 rounded-xl p-0">
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
