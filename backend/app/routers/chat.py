@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import ChatMessage
+from app.models import ChatMessage, Property
 from app.schemas import ChatRequest, ChatResponse, ChatHistoryResponse
 from app.auth import get_current_user, User
 from app.services.rag import chat_with_rag
@@ -24,12 +24,14 @@ async def send_message(
     current_user: User = Depends(get_current_user),
 ):
     """Send a chat message and receive an AI response with source citations."""
-    # Get recent conversation history
+    # Get recent conversation history (strictly isolated by property)
+    query = select(ChatMessage).where(
+        ChatMessage.user_id == current_user.id,
+        ChatMessage.property_id == request.property_id
+    )
+    
     history_result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.user_id == current_user.id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(6)
+        query.order_by(ChatMessage.created_at.desc()).limit(6)
     )
     history_msgs = history_result.scalars().all()
     history = [
@@ -37,11 +39,18 @@ async def send_message(
         for m in reversed(history_msgs)
     ]
 
+    # Get Property Name for anchoring context
+    property_name = None
+    if request.property_id:
+        p_res = await db.execute(select(Property.name).where(Property.id == request.property_id))
+        property_name = p_res.scalar()
+
     # Get RAG response
     rag_result = await chat_with_rag(
         query=request.message,
         tenant_id=current_user.tenant_id,
         property_id=request.property_id,
+        property_name=property_name,
         history=history,
     )
 
@@ -77,9 +86,9 @@ async def get_history(
     query = select(ChatMessage).where(ChatMessage.user_id == current_user.id)
     count_query = select(func.count(ChatMessage.id)).where(ChatMessage.user_id == current_user.id)
 
-    if property_id:
-        query = query.where(ChatMessage.property_id == property_id)
-        count_query = count_query.where(ChatMessage.property_id == property_id)
+    # Strictly isolated by property
+    query = query.where(ChatMessage.property_id == property_id)
+    count_query = count_query.where(ChatMessage.property_id == property_id)
 
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0

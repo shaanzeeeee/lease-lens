@@ -7,6 +7,7 @@ Pipeline flow:
                        └── (retry) ───┘
 """
 import logging
+import traceback
 from langgraph.graph import StateGraph, START, END
 
 from app.agents.state import PipelineState
@@ -27,6 +28,7 @@ def _route_after_validation(state: PipelineState) -> str:
 
     if requires_human_review:
         # Pause pipeline for Human-In-The-Loop
+        logger.info(f"[Graph] Routing to END for human review (doc {state['document_id']})")
         return END
 
     if stage == "extraction" and iterations < 3:
@@ -56,7 +58,7 @@ def build_pipeline() -> StateGraph:
     graph.add_edge(START, "intake")
     graph.add_conditional_edges("intake", _route_after_intake, ["extraction", END])
     graph.add_edge("extraction", "validation")
-    graph.add_conditional_edges("validation", _route_after_validation, ["extraction", "underwriting"])
+    graph.add_conditional_edges("validation", _route_after_validation, ["extraction", "underwriting", END])
     graph.add_edge("underwriting", "reporting")
     graph.add_edge("reporting", END)
 
@@ -106,6 +108,7 @@ async def run_pipeline(
         return result
     except Exception as e:
         logger.error(f"Pipeline failed for doc {document_id}: {e}")
+        logger.error(traceback.format_exc())
         return {
             **initial_state,
             "stage": "complete",

@@ -2,6 +2,8 @@
 Agents router: Trigger and monitor the LangGraph document processing pipeline.
 """
 import logging
+import asyncio
+import aiofiles
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
@@ -59,11 +61,10 @@ async def _process_document(doc_id: int, tenant_id: int):
 
             # Step 1: OCR if not already done
             if not doc.ocr_text:
-                doc.status = DocumentStatus.PROCESSING.value
-                await db.commit()
-
-                with open(doc.file_path, "rb") as f:
-                    file_bytes = f.read()
+                logger.info(f"Step 1: Extracting text for doc {doc_id} ({doc.file_type})")
+                async with aiofiles.open(doc.file_path, "rb") as f:
+                    file_bytes = await f.read()
+                
                 await notify_clients(doc.property_id, {"document_id": doc_id, "status": "processing", "stage": "ocr"})
                 ocr_result = await extract_text_from_file(file_bytes, doc.file_type or "pdf")
 
@@ -155,19 +156,44 @@ async def _process_document(doc_id: int, tenant_id: int):
             await notify_clients(doc.property_id, {"document_id": doc_id, "status": "verified", "stage": "complete"})
 
         except Exception as e:
-            logger.error(f"Pipeline failed for doc {doc_id}: {e}")
+            logger.error(f"❌ Pipeline failed for doc {doc_id}: {str(e)}", exc_info=True)
             await db.rollback()
             # Update doc status to failed
             try:
-                result = await db.execute(select(Document).where(Document.id == doc_id))
-                doc = result.scalar_one_or_none()
-                if doc:
-                    doc.status = DocumentStatus.FAILED.value
-                    await db.commit()
-            except Exception:
-                pass
-            if 'doc' in locals() and doc:
-                await notify_clients(doc.property_id, {"document_id": doc_id, "status": "failed", "stage": "error"})
+                # We need a fresh session for the error update since the previous one might be in a failed state
+                async with async_session() as error_db:
+                    result = await error_db.execute(select(Document).where(Document.id == doc_id))
+                    error_doc = result.scalar_one_or_none()
+                    if error_doc:
+                        error_doc.status = DocumentStatus.FAILED.value
+                        error_doc.error_message = str(e)
+                        await error_db.commit()
+                        logger.info(f"Updated status to FAILED for doc {doc_id}")
+            except Exception as e2:
+                logger.error(f"Failed to update document status to FAILED: {e2}")
+            
+            # Notify clients of failure
+            try:
+                # We try to get the property_id from the doc object if it was loaded, 
+                # otherwise we might need to fetch it again.
+                pid = None
+                if 'doc' in locals() and doc:
+                    pid = doc.property_id
+                else:
+                    async with async_session() as fetch_db:
+                        res = await fetch_db.execute(select(Document).where(Document.id == doc_id))
+                        d = res.scalar_one_or_none()
+                        if d: pid = d.property_id
+                
+                if pid:
+                    await notify_clients(pid, {
+                        "document_id": doc_id, 
+                        "status": "failed", 
+                        "stage": "error",
+                        "error": str(e)
+                    })
+            except Exception as e3:
+                logger.error(f"Failed to notify clients of error: {e3}")
 
 
 @router.post("/process/{doc_id}")

@@ -44,6 +44,16 @@ async def extract_text_from_file(file_bytes: bytes, file_type: str) -> dict:
     except (NoCredentialsError, ClientError) as e:
         logger.warning(f"Textract primary extraction unavailable: {e}")
 
+    # Ultimate fallback: local text extraction
+    if file_type == "pdf":
+        logger.info("Direct Textract/OCR failed, trying local PyPDF2 text extraction...")
+        try:
+            local_res = _extract_with_pypdf2(file_bytes)
+            if len(local_res.get("text", "").strip()) > 10:
+                return local_res
+        except Exception as e:
+            logger.error(f"PyPDF2 fallback failed: {e}")
+
     return {
         "text": "",
         "confidence": 0.0,
@@ -108,6 +118,13 @@ def _extract_with_pypdf2(file_bytes: bytes) -> dict:
         text = page.extract_text()
         if text:
             pages_text.append(text.strip())
+
+    return {
+        "text": "\n\n".join(pages_text),
+        "confidence": 70.0,  # Arbitrary confidence for direct text extraction
+        "blocks": [],
+        "method": "pypdf2",
+    }
 
     full_text = "\n\n".join(pages_text)
 

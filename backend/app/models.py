@@ -152,6 +152,7 @@ class Document(Base):
     status = Column(String(50), default=DocumentStatus.PENDING.value, index=True)
     ai_category = Column(String(100))  # AI-determined category
     ai_summary = Column(Text)
+    error_message = Column(Text)
     metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

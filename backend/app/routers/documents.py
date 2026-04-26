@@ -256,6 +256,11 @@ async def approve_document(
     doc.updated_at = datetime.utcnow()
     await db.flush()
     await db.refresh(doc)
+    
+    # Notify clients via WebSocket
+    from app.routers.agents import notify_clients
+    await notify_clients(doc.property_id, {"document_id": doc.id, "status": "verified", "stage": "manual_approval"})
+    
     return DocumentResponse.model_validate(doc)
 
 

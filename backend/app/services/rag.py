@@ -24,6 +24,7 @@ async def chat_with_rag(
     query: str,
     tenant_id: int,
     property_id: Optional[int] = None,
+    property_name: Optional[str] = None,
     history: Optional[list] = None,
 ) -> dict:
     """
@@ -72,11 +73,13 @@ async def chat_with_rag(
     context = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found in the database."
 
     # 3. Build conversation messages
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are the Investment Concierge — an AI assistant for real estate portfolio analysis.
-You have access to the property document database and provide data-driven answers.
+    system_instruction = f"""You are the Investment Concierge — an AI assistant for real estate portfolio analysis.
+You have access to the property document database and provide data-driven answers."""
+
+    if property_name:
+        system_instruction += f"\n\nCURRENT FOCUS: You are currently analyzing the property: **{property_name}**."
+
+    system_instruction += f"""
 
 RULES:
 1. Base your answers ONLY on the provided document context.
@@ -88,6 +91,11 @@ RULES:
 
 DOCUMENT CONTEXT:
 {context}"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_instruction
         }
     ]
 

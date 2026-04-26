@@ -1,6 +1,7 @@
 """
 Pinecone vector store service for RAG document embeddings.
 """
+import asyncio
 import logging
 import hashlib
 from typing import Optional, List
@@ -55,6 +56,11 @@ def _get_embedding(text: str, client: OpenAI) -> list[float]:
     return response.data[0].embedding
 
 
+async def _get_embedding_async(text: str, client: OpenAI) -> list[float]:
+    """Get OpenAI embedding for a text chunk (async-friendly)."""
+    return await asyncio.to_thread(_get_embedding, text, client)
+
+
 async def upsert_document(
     doc_id: int,
     text: str,
@@ -77,7 +83,7 @@ async def upsert_document(
 
     for i, chunk in enumerate(chunks):
         try:
-            embedding = _get_embedding(chunk, client)
+            embedding = await _get_embedding_async(chunk, client)
             chunk_id = f"doc-{doc_id}-chunk-{i}"
             vectors.append({
                 "id": chunk_id,
@@ -98,7 +104,7 @@ async def upsert_document(
             # Upsert in batches of 100
             for batch_start in range(0, len(vectors), 100):
                 batch = vectors[batch_start:batch_start + 100]
-                index.upsert(vectors=batch)
+                await asyncio.to_thread(index.upsert, vectors=batch)
             logger.info(f"Upserted {len(vectors)} chunks for doc {doc_id}")
         except Exception as e:
             logger.error(f"Pinecone upsert failed: {e}")
@@ -124,14 +130,15 @@ async def search_vectors(
         return []
 
     try:
-        query_embedding = _get_embedding(query, client)
+        query_embedding = await _get_embedding_async(query, client)
 
         # Build filter
         filter_dict = {"tenant_id": {"$eq": tenant_id}}
         if property_id:
             filter_dict["property_id"] = {"$eq": property_id}
 
-        results = index.query(
+        results = await asyncio.to_thread(
+            index.query,
             vector=query_embedding,
             top_k=top_k,
             include_metadata=True,
@@ -163,14 +170,14 @@ async def delete_document_vectors(doc_id: int) -> bool:
     try:
         # Delete by metadata filter if supported, otherwise by ID
         # Most modern Pinecone indexes support metadata filtering for deletes
-        index.delete(filter={"doc_id": {"$eq": doc_id}})
+        await asyncio.to_thread(index.delete, filter={"doc_id": {"$eq": doc_id}})
         return True
     except Exception as e:
         logger.warning(f"Vector delete by filter failed: {e}. Falling back to ID-based delete.")
         try:
             # Fallback for older tiers: delete by ID (up to 250 chunks)
             ids_to_delete = [f"doc-{doc_id}-chunk-{i}" for i in range(250)]
-            index.delete(ids=ids_to_delete)
+            await asyncio.to_thread(index.delete, ids=ids_to_delete)
             return True
         except Exception as e2:
             logger.error(f"Fallback vector delete failed: {e2}")
@@ -184,7 +191,7 @@ async def delete_property_vectors(property_id: int) -> bool:
         return False
 
     try:
-        index.delete(filter={"property_id": {"$eq": property_id}})
+        await asyncio.to_thread(index.delete, filter={"property_id": {"$eq": property_id}})
         return True
     except Exception as e:
         logger.error(f"Failed to delete property vectors: {e}")

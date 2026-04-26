@@ -81,9 +81,23 @@ export default function PropertyDetail() {
   const [apartments, setApartments] = useState<any[]>([]);
   const [apartmentsLoading, setApartmentsLoading] = useState(false);
 
+  const loadChatHistory = async () => {
+    try {
+      const res = await apiClient.get(`/chat/history?property_id=${id}&page_size=10`);
+      const history = res.data.messages.flatMap((m: any) => [
+        { role: 'user', content: m.message },
+        { role: 'assistant', content: m.response }
+      ]);
+      setChatMessages(history);
+    } catch (err) {
+      console.error('Failed to load chat history', err);
+    }
+  };
+
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setChatMessages([]); // Reset chat when switching properties
       try {
         // Fetch property first as it's critical
         const propRes = await apiClient.get(`/properties/${id}`);
@@ -125,13 +139,34 @@ export default function PropertyDetail() {
     fetchData();
     
     // WebSocket connection for real-time pipeline updates
-    const wsUrl = `ws://localhost:8001/api/agents/ws/pipeline/${id}`;
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const wsBase = API_BASE.replace(/^http/, 'ws');
+    const wsUrl = `${wsBase}/api/agents/ws/pipeline/${id}`;
+    
+    console.log("Connecting to WebSocket:", wsUrl);
     const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      console.log("WebSocket connected successfully");
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+    
+    ws.onclose = () => {
+      console.log("WebSocket connection closed. Reconnecting in 5s...");
+      setTimeout(() => {
+        // This will trigger the effect again if we used a ref for the socket
+        // but for now, we'll just let the next navigation or refresh handle it
+        // OR we can just reload the page if it's critical.
+      }, 5000);
+    };
     
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("Pipeline status update:", data);
+        console.log("Pipeline status update received:", data);
         
         // Optimistic UI update
         setDocuments(prevDocs => 
@@ -144,7 +179,17 @@ export default function PropertyDetail() {
         
         // Clear processing state if complete, failed, or needs review
         if (data.status === 'verified' || data.status === 'failed' || data.status === 'needs_review') {
-          setProcessingDocs(prev => ({ ...prev, [data.document_id]: false }));
+          setProcessingDocs(prev => {
+            const next = { ...prev };
+            delete next[data.document_id];
+            return next;
+          });
+          
+          if (data.status === 'failed' && data.error) {
+            console.error(`Pipeline failure for doc ${data.document_id}: ${data.error}`);
+            // We could show a global error toast here
+          }
+
           // Refresh the data to get the new deal or review status
           fetchData();
         }
@@ -157,6 +202,12 @@ export default function PropertyDetail() {
       ws.close();
     };
   }, [id]);
+
+  useEffect(() => {
+    if (isCopilotOpen && id) {
+      loadChatHistory();
+    }
+  }, [isCopilotOpen, id]);
 
   useEffect(() => {
     return () => {
@@ -633,7 +684,14 @@ export default function PropertyDetail() {
                                     </div>
                                     <div>
                                       <div className="font-bold text-foreground">{doc.original_filename}</div>
-                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{formatLabel(doc.category) || 'Root'} • {Math.round(doc.file_size / 1024)} KB</div>
+                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
+                                        {formatLabel(doc.category) || 'Root'} • {Math.round(doc.file_size / 1024)} KB
+                                      </div>
+                                      {doc.status === 'failed' && doc.error_message && (
+                                        <div className="text-[10px] text-destructive font-medium mt-1 max-w-[200px] truncate" title={doc.error_message}>
+                                          Error: {doc.error_message}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -677,6 +735,10 @@ export default function PropertyDetail() {
                                         <>Processing <Loader2 className="w-3 h-3 ml-1.5 animate-spin" /></>
                                       ) : doc.status === 'needs_review' ? (
                                         <>Review <AlertCircle className="w-3 h-3 ml-1.5" /></>
+                                      ) : doc.status === 'failed' ? (
+                                        <>Failed (Retry) <AlertCircle className="w-3 h-3 ml-1.5" /></>
+                                      ) : doc.status === 'verified' ? (
+                                        <>Verified <CheckCircle2 className="w-3 h-3 ml-1.5" /></>
                                       ) : (
                                         <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
                                       )}
