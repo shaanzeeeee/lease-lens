@@ -77,6 +77,7 @@ async def _process_document(doc_id: int, tenant_id: int):
                     doc.status = DocumentStatus.NEEDS_REVIEW.value
                     await db.commit()
                     logger.info(f"Doc {doc_id}: low confidence ({ocr_result['confidence']}%), flagged for review")
+                    await notify_clients(doc.property_id, {"document_id": doc_id, "status": "needs_review", "stage": "low_confidence_ocr"})
                     return
 
                 await db.commit()
@@ -189,8 +190,8 @@ async def process_document(
     doc.status = DocumentStatus.PROCESSING.value
     await db.commit()
 
-    # Trigger Celery Task
-    process_document_task.delay(doc_id, current_user.tenant_id)
+    # Trigger Background Task (instead of Celery to keep it in-process for WebSocket support)
+    background_tasks.add_task(_process_document, doc_id, current_user.tenant_id)
 
     return {"message": "Processing started", "document_id": doc_id, "status": "processing"}
 
@@ -222,7 +223,7 @@ async def process_all_documents(
 
     for doc in docs:
         doc.status = DocumentStatus.PROCESSING.value
-        process_document_task.delay(doc.id, current_user.tenant_id)
+        background_tasks.add_task(_process_document, doc.id, current_user.tenant_id)
 
     await db.commit()
 

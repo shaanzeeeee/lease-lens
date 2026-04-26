@@ -1,4 +1,5 @@
 import React, { type ButtonHTMLAttributes, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -144,6 +145,7 @@ export function Badge({ className, variant = 'default', ...props }: BadgeProps) 
   );
 }
 
+
 // Modal Component
 export interface ModalProps {
   isOpen: boolean;
@@ -163,8 +165,8 @@ export function Modal({ isOpen, onClose, title, children, size = 'default' }: Mo
     full: 'max-w-[95vw]'
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
         className={cn(
           "bg-card w-full rounded-2xl border border-border/50 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200",
@@ -186,7 +188,8 @@ export function Modal({ isOpen, onClose, title, children, size = 'default' }: Mo
         </div>
       </div>
       <div className="fixed inset-0 -z-10" onClick={onClose} />
-    </div>
+    </div>,
+    document.body
   );
 }
 

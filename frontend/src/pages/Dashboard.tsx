@@ -25,10 +25,10 @@ export default function Dashboard() {
   }, []);
 
   const statCards = [
-    { title: 'Total Properties', value: stats?.total_properties || 0, icon: Building2, trend: '+2 this month', color: 'primary' },
-    { title: 'Portfolio Docs', value: stats?.total_documents || 0, icon: TrendingUp, trend: '98% indexed', color: 'blue-500' },
-    { title: 'Active Deals', value: stats?.active_deals || 0, icon: Activity, trend: 'In underwriting', color: 'green-500' },
-    { title: 'Pending Review', value: stats?.pending_verification || 0, icon: Home, trend: 'Verification queue', color: 'orange-500' }
+    { title: 'Total Properties', value: stats?.total_properties || 0, icon: Building2, trend: 'Portfolio Overview', color: 'primary' },
+    { title: 'Portfolio Docs', value: stats?.total_documents || 0, icon: TrendingUp, trend: 'Document Store', color: 'blue-500' },
+    { title: 'Active Deals', value: stats?.active_deals || 0, icon: Activity, trend: 'Current Pipeline', color: 'green-500' },
+    { title: 'Pending Review', value: stats?.pending_verification || 0, icon: Home, trend: 'HITL Queue', color: 'orange-500' }
   ];
 
   return (
@@ -165,7 +165,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-4">
                 <div className="p-4 rounded-xl bg-accent/50 text-sm border border-border/50 leading-relaxed">
                   <span className="font-bold text-primary">AI Concierge:</span>{' '}
-                  You have a new notification regarding the NOI mismatch in "Evaluation Fonciere.pdf".
+                  All document extraction tasks are currently synchronized with the data room.
                 </div>
                 <Button variant="outline" className="w-full gap-2 font-semibold" onClick={() => navigate('/concierge')}>
                   Open Chat <ArrowRight className="w-4 h-4" />

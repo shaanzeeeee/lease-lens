@@ -1,7 +1,7 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
 
 // Base API configuration
-const API_URL = 'http://localhost:8001/api';
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8001') + '/api';
 
 export const apiClient = axios.create({
   baseURL: API_URL,

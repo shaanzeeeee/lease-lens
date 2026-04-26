@@ -7,11 +7,43 @@ import {
   Upload, CheckCircle2, AlertCircle, 
   Search, ExternalLink, Calculator,
   TrendingUp, Wallet, ArrowUpRight,
-  Filter, LayoutGrid, List, Trash2, Loader2, MessageSquare, Send, X
+  Filter, LayoutGrid, List, Trash2, Loader2, MessageSquare, Send, X, Image,
+  Folder, ChevronRight
 } from 'lucide-react';
 import { Dropzone } from '../components/ui/Dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+
+const formatLabel = (str: string) => {
+  if (!str) return '';
+  if (str === 'Uncategorized') return 'Uncategorized';
+  return str
+    .split(/[_-]/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+function AuthenticatedImage({ docId, alt, className }: { docId: number, alt: string, className?: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    apiClient.get(`/documents/${docId}/file`, { responseType: 'blob' })
+      .then(response => {
+        const blob = new Blob([response.data], { type: response.headers['content-type'] as string || 'image/jpeg' });
+        objectUrl = window.URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(err => console.error('Failed to load image', err));
+
+    return () => {
+      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+    };
+  }, [docId]);
+
+  if (!src) return <div className={`animate-pulse bg-muted/50 ${className}`}></div>;
+  return <img src={src} alt={alt} className={className} />;
+}
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -31,7 +63,8 @@ export default function PropertyDetail() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [processingDocs, setProcessingDocs] = useState<Record<number, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('All');
+  const [activeTab, setActiveTab] = useState('Explorer');
+  const [currentPath, setCurrentPath] = useState<string[]>([]);
 
   // Pro-Forma States
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -45,14 +78,8 @@ export default function PropertyDetail() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Mock Rent Roll Data
-  const mockRentRoll = [
-    { id: 1, unit: '101', tenant: 'Acme Corp', start: '2023-01-01', end: '2026-12-31', rent: 4500, market: 5000 },
-    { id: 2, unit: '102', tenant: 'Global Tech', start: '2024-05-01', end: '2025-04-30', rent: 5200, market: 5000 },
-    { id: 3, unit: '201', tenant: 'Smith LLC', start: '2022-03-01', end: '2024-02-28', rent: 3800, market: 4800 },
-    { id: 4, unit: '202', tenant: 'Vacant', start: '-', end: '-', rent: 0, market: 4800 },
-    { id: 5, unit: 'Retail 1', tenant: 'Starbucks', start: '2020-01-01', end: '2030-12-31', rent: 12000, market: 12500 }
-  ];
+  const [apartments, setApartments] = useState<any[]>([]);
+  const [apartmentsLoading, setApartmentsLoading] = useState(false);
 
     const fetchData = async () => {
       setLoading(true);
@@ -63,9 +90,10 @@ export default function PropertyDetail() {
         setProperty(propRes.data);
         
         // Fetch others in parallel but handle errors individually
-        const [docsRes, dealsRes] = await Promise.allSettled([
+        const [docsRes, dealsRes, apartmentsRes] = await Promise.allSettled([
           apiClient.get(`/documents/?property_id=${id}`),
-          apiClient.get(`/deals/?property_id=${id}`)
+          apiClient.get(`/deals/?property_id=${id}`),
+          apiClient.get(`/properties/${id}/apartments`)
         ]);
         
         if (docsRes.status === 'fulfilled') {
@@ -79,6 +107,12 @@ export default function PropertyDetail() {
         } else {
           console.error('Failed to fetch deals', dealsRes.reason);
         }
+
+        if (apartmentsRes.status === 'fulfilled') {
+          setApartments(apartmentsRes.value.data);
+        } else {
+          console.error('Failed to fetch apartments', apartmentsRes.reason);
+        }
       } catch (err) {
         console.error('Failed to fetch property details', err);
         setError('Property not found or server error');
@@ -91,7 +125,7 @@ export default function PropertyDetail() {
     fetchData();
     
     // WebSocket connection for real-time pipeline updates
-    const wsUrl = `ws://localhost:8000/api/agents/ws/pipeline/${id}`;
+    const wsUrl = `ws://localhost:8001/api/agents/ws/pipeline/${id}`;
     const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (event) => {
@@ -257,20 +291,65 @@ export default function PropertyDetail() {
 
   const [fileViewMode, setFileViewMode] = useState<'list' | 'grid'>('list');
 
+  const latestDeal = deals.length > 0 ? deals[0] : null;
+
   const institutionalStats = [
-    { label: 'Market Cap Rate', value: '5.2%', icon: TrendingUp, color: 'text-primary' },
-    { label: 'Projected NOI', value: '$242,500', icon: Calculator, color: 'text-green-500' },
-    { label: 'Asset Value', value: '$4.6M', icon: Wallet, color: 'text-blue-500' },
-    { label: 'Unit Count', value: property?.unit_count || 0, icon: Building2, color: 'text-orange-500' }
+    { 
+      label: 'Market Cap Rate', 
+      value: latestDeal?.cap_rate ? `${latestDeal.cap_rate}%` : 'N/A', 
+      icon: TrendingUp, 
+      color: 'text-primary' 
+    },
+    { 
+      label: 'Projected NOI', 
+      value: latestDeal?.noi ? `$${latestDeal.noi.toLocaleString()}` : 'N/A', 
+      icon: Calculator, 
+      color: 'text-green-500' 
+    },
+    { 
+      label: 'Asset Value', 
+      value: latestDeal?.purchase_price ? `$${(latestDeal.purchase_price / 1000000).toFixed(1)}M` : 'N/A', 
+      icon: Wallet, 
+      color: 'text-blue-500' 
+    },
+    { 
+      label: 'Unit Count', 
+      value: property?.unit_count || 0, 
+      icon: Building2, 
+      color: 'text-orange-500' 
+    }
   ];
 
-  const categories = ['All', 'Rent Roll', ...Array.from(new Set(documents.map(d => d.category || 'Uncategorized')))];
+  const nonPhotoDocs = documents.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
   
-  const filteredDocuments = documents.filter(doc => {
-    const matchesSearch = doc.original_filename?.toLowerCase().includes(searchQuery.toLowerCase()) || doc.category?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTab = activeTab === 'All' || (doc.category || 'Uncategorized') === activeTab;
-    return matchesSearch && matchesTab;
-  });
+  let currentFolders: string[] = [];
+  let currentFiles: any[] = [];
+
+  if (activeTab === 'Explorer') {
+    if (searchQuery) {
+      currentFiles = nonPhotoDocs.filter(doc => 
+        doc.original_filename?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        doc.category?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    } else {
+      if (currentPath.length === 0) {
+        currentFolders = Array.from(new Set(nonPhotoDocs.filter(d => d.category && d.category !== 'Uncategorized').map(d => d.category)));
+        currentFiles = nonPhotoDocs.filter(d => !d.category || d.category === 'Uncategorized');
+      } else if (currentPath.length === 1) {
+        const cat = currentPath[0];
+        currentFolders = Array.from(new Set(nonPhotoDocs.filter(d => d.category === cat && d.subcategory).map(d => d.subcategory)));
+        currentFiles = nonPhotoDocs.filter(d => d.category === cat && !d.subcategory);
+      } else if (currentPath.length >= 2) {
+        const cat = currentPath[0];
+        const subcat = currentPath[1];
+        currentFiles = nonPhotoDocs.filter(d => d.category === cat && d.subcategory === subcat);
+      }
+    }
+  }
+
+  const photoDocuments = documents.filter(doc => 
+    doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')
+  );
 
   if (loading) {
     return (
@@ -397,20 +476,50 @@ export default function PropertyDetail() {
               </div>
             </CardHeader>
             <div className="border-b border-border/50 bg-muted/5 px-8 flex overflow-x-auto no-scrollbar gap-2 pt-2">
-              {categories.map((category) => (
+              {['Explorer', 'Rent Roll'].map((tab) => (
                 <button
-                  key={category}
-                  onClick={() => setActiveTab(category)}
+                  key={tab}
+                  onClick={() => { setActiveTab(tab); if (tab === 'Explorer') setCurrentPath([]); }}
                   className={`px-4 py-3 text-xs font-bold uppercase tracking-widest whitespace-nowrap border-b-2 transition-colors ${
-                    activeTab === category 
+                    activeTab === tab 
                       ? 'border-primary text-primary' 
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {category}
+                  {tab}
                 </button>
               ))}
             </div>
+            {activeTab === 'Explorer' && !searchQuery && (
+              <div className="flex items-center gap-3 px-8 py-4 bg-muted/10 border-b border-border/50 text-sm font-bold overflow-x-auto no-scrollbar shadow-inner">
+                <button 
+                  onClick={() => setCurrentPath([])} 
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${
+                    currentPath.length === 0 
+                      ? 'bg-primary/10 text-primary border border-primary/20' 
+                      : 'text-muted-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  <Folder className={`w-4 h-4 ${currentPath.length === 0 ? 'text-primary' : 'text-muted-foreground'}`} /> 
+                  Root
+                </button>
+                {currentPath.map((folder, idx) => (
+                  <React.Fragment key={`${folder}-${idx}`}>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
+                    <button 
+                      onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
+                      className={`px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
+                        idx === currentPath.length - 1
+                          ? 'bg-primary/10 text-primary border border-primary/20'
+                          : 'text-muted-foreground hover:bg-muted/50'
+                      }`}
+                    >
+                      {formatLabel(folder)}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
             <CardContent className="p-0">
               <AnimatePresence mode="wait">
                 {activeTab === 'Rent Roll' ? (
@@ -434,32 +543,41 @@ export default function PropertyDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/30">
-                        {mockRentRoll.map((row) => {
-                          const isBelowMarket = row.rent < row.market && row.rent > 0;
-                          return (
-                            <tr key={row.id} className="hover:bg-primary/5 transition-colors">
-                              <td className="px-4 py-3 font-bold">{row.unit}</td>
-                              <td className="px-4 py-3 text-muted-foreground">{row.tenant}</td>
-                              <td className="px-4 py-3 text-muted-foreground">{row.start}</td>
-                              <td className="px-4 py-3 font-bold">{row.end}</td>
-                              <td className={`px-4 py-3 text-right font-bold ${isBelowMarket ? 'text-orange-500' : ''}`}>
-                                ${row.rent.toLocaleString()}
-                              </td>
-                              <td className="px-4 py-3 text-right text-muted-foreground">
-                                ${row.market.toLocaleString()}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {row.rent === 0 ? (
-                                  <Badge variant="destructive" className="text-[10px] uppercase">Vacant</Badge>
-                                ) : isBelowMarket ? (
-                                  <Badge variant="warning" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px] uppercase">Below Market</Badge>
-                                ) : (
-                                  <Badge variant="success" className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] uppercase">Stable</Badge>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {apartments.length > 0 ? (
+                          apartments.map((row) => {
+                            const marketRent = row.monthly_rent ? row.monthly_rent * 1.1 : 0; // Derived market rent (mocked for now)
+                            const isBelowMarket = row.monthly_rent < marketRent && row.monthly_rent > 0;
+                            return (
+                              <tr key={row.id} className="hover:bg-primary/5 transition-colors">
+                                <td className="px-4 py-3 font-bold">{row.unit_number}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{row.tenant_name || 'Vacant'}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{row.lease_start ? new Date(row.lease_start).toLocaleDateString() : '-'}</td>
+                                <td className="px-4 py-3 font-bold">{row.lease_end ? new Date(row.lease_end).toLocaleDateString() : '-'}</td>
+                                <td className={`px-4 py-3 text-right font-bold ${isBelowMarket ? 'text-orange-500' : ''}`}>
+                                  ${row.monthly_rent?.toLocaleString() || '0'}
+                                </td>
+                                <td className="px-4 py-3 text-right text-muted-foreground">
+                                  ${marketRent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {row.monthly_rent === 0 || !row.monthly_rent ? (
+                                    <Badge variant="destructive" className="text-[10px] uppercase">Vacant</Badge>
+                                  ) : isBelowMarket ? (
+                                    <Badge variant="warning" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px] uppercase">Below Market</Badge>
+                                  ) : (
+                                    <Badge variant="success" className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] uppercase">Stable</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground font-semibold">
+                              No apartment data available. Process lease documents to populate this table.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </motion.div>
@@ -481,79 +599,101 @@ export default function PropertyDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/30">
-                        {filteredDocuments.length > 0 ? (
-                          filteredDocuments.map((doc) => (
-                            <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
-                              <td className="px-8 py-5">
-                                <div className="flex items-center gap-3">
-                                  <div 
-                                    className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors"
-                                    onClick={() => handleViewDocument(doc)}
-                                  >
-                                    <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        {currentFolders.length > 0 || currentFiles.length > 0 ? (
+                          <>
+                            {currentFolders.map(folder => (
+                              <tr key={folder} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => setCurrentPath([...currentPath, folder])}>
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                                      <Folder className="w-5 h-5 text-primary" />
+                                    </div>
+                                    <div>
+                                      <div className="font-bold text-foreground">{formatLabel(folder)}</div>
+                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">Directory</div>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <div className="font-bold text-foreground">{doc.original_filename}</div>
-                                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{doc.category} • {Math.round(doc.file_size / 1024)} KB</div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5">
-                                 <div className="flex items-center gap-2">
-                                   <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                   <span className="font-bold text-xs uppercase tracking-tight">Structured Deal</span>
-                                 </div>
-                              </td>
-                              <td className="px-8 py-5">
-                                <div className="flex flex-col gap-1.5 w-24">
-                                  <div className="flex justify-between text-[10px] font-black uppercase">
-                                    <span>Match</span>
-                                    <span>{Math.round(doc.ocr_confidence)}%</span>
-                                  </div>
-                                  <div className="w-full h-1 bg-muted/50 rounded-full overflow-hidden">
+                                </td>
+                                <td className="px-8 py-5"></td>
+                                <td className="px-8 py-5"></td>
+                                <td className="px-8 py-5 text-right">
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground inline-block opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </td>
+                              </tr>
+                            ))}
+                            {currentFiles.map((doc) => (
+                              <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-3">
                                     <div 
-                                      className="h-full bg-green-500" 
-                                      style={{ width: `${doc.ocr_confidence}%` }} 
-                                    />
+                                      className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors"
+                                      onClick={() => handleViewDocument(doc)}
+                                    >
+                                      <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                                    </div>
+                                    <div>
+                                      <div className="font-bold text-foreground">{doc.original_filename}</div>
+                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{formatLabel(doc.category) || 'Root'} • {Math.round(doc.file_size / 1024)} KB</div>
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="px-8 py-5 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <Button 
-                                    variant={doc.status === 'needs_review' ? 'destructive' : 'outline'} 
-                                    size="sm" 
-                                    className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (doc.status === 'needs_review') {
-                                        handleViewDocument(doc, true);
-                                      } else {
-                                        handleRunPipeline(doc.id);
-                                      }
-                                    }}
-                                    disabled={processingDocs[doc.id] || doc.status === 'processing'}
-                                  >
-                                    {processingDocs[doc.id] || doc.status === 'processing' ? (
-                                      <>Processing <Loader2 className="w-3 h-3 ml-1.5 animate-spin" /></>
-                                    ) : doc.status === 'needs_review' ? (
-                                      <>Review <AlertCircle className="w-3 h-3 ml-1.5" /></>
-                                    ) : (
-                                      <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
-                                    )}
-                                  </Button>
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon" 
-                                    className="h-8 w-8 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all"
-                                    onClick={() => handleDeleteDocument(doc.id)}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                                <td className="px-8 py-5">
+                                   <div className="flex items-center gap-2">
+                                     <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                     <span className="font-bold text-xs uppercase tracking-tight">Structured Deal</span>
+                                   </div>
+                                </td>
+                                <td className="px-8 py-5">
+                                  <div className="flex flex-col gap-1.5 w-24">
+                                    <div className="flex justify-between text-[10px] font-black uppercase">
+                                      <span>Match</span>
+                                      <span>{Math.round(doc.ocr_confidence)}%</span>
+                                    </div>
+                                    <div className="w-full h-1 bg-muted/50 rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-green-500" 
+                                        style={{ width: `${doc.ocr_confidence}%` }} 
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Button 
+                                      variant={doc.status === 'needs_review' ? 'destructive' : 'outline'} 
+                                      size="sm" 
+                                      className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (doc.status === 'needs_review') {
+                                          handleViewDocument(doc, true);
+                                        } else {
+                                          handleRunPipeline(doc.id);
+                                        }
+                                      }}
+                                      disabled={processingDocs[doc.id] || doc.status === 'processing'}
+                                    >
+                                      {processingDocs[doc.id] || doc.status === 'processing' ? (
+                                        <>Processing <Loader2 className="w-3 h-3 ml-1.5 animate-spin" /></>
+                                      ) : doc.status === 'needs_review' ? (
+                                        <>Review <AlertCircle className="w-3 h-3 ml-1.5" /></>
+                                      ) : (
+                                        <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
+                                      )}
+                                    </Button>
+                                    <Button 
+                                      variant="outline" 
+                                      size="icon" 
+                                      className="h-8 w-8 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all"
+                                      onClick={() => handleDeleteDocument(doc.id)}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </>
                         ) : (
                           <tr>
                             <td colSpan={4} className="px-8 py-20 text-center text-muted-foreground font-semibold">
@@ -572,44 +712,59 @@ export default function PropertyDetail() {
                     exit={{ opacity: 0 }}
                     className="p-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6"
                   >
-                    {filteredDocuments.length > 0 ? (
-                      filteredDocuments.map((doc) => (
-                        <Card key={doc.id} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-3">
-                            <Badge variant="success" className="text-[8px] px-1.5 h-4">Verified</Badge>
-                          </div>
-                          <CardContent className="p-6">
-                            <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-sm">
-                              <FileText className="w-6 h-6 text-primary" />
-                            </div>
-                            <div className="space-y-1">
-                              <h4 className="font-bold text-sm truncate pr-8">{doc.original_filename}</h4>
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-black">{doc.category}</p>
-                            </div>
-                            <div className="mt-4 pt-4 border-t border-border/30 flex justify-between items-center">
-                              <div className="text-[10px] font-bold text-muted-foreground">{Math.round(doc.file_size / 1024)} KB</div>
-                              <div className="flex items-center gap-2">
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0"
-                                  onClick={() => handleViewDocument(doc, doc.status === 'needs_review')}
-                                >
-                                  View <ExternalLink className="w-3 h-3 ml-1" />
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-destructive p-0"
-                                  onClick={() => handleDeleteDocument(doc.id)}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
+                    {currentFolders.length > 0 || currentFiles.length > 0 ? (
+                      <>
+                        {currentFolders.map(folder => (
+                          <Card key={folder} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden cursor-pointer" onClick={() => setCurrentPath([...currentPath, folder])}>
+                            <CardContent className="p-6">
+                              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-sm">
+                                <Folder className="w-6 h-6 text-primary" />
                               </div>
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-sm truncate pr-8">{formatLabel(folder)}</h4>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-black">Directory</p>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                        {currentFiles.map((doc) => (
+                          <Card key={doc.id} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-3">
+                              <Badge variant="success" className="text-[8px] px-1.5 h-4">Verified</Badge>
                             </div>
-                          </CardContent>
-                        </Card>
-                      ))
+                            <CardContent className="p-6">
+                              <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-sm">
+                                <FileText className="w-6 h-6 text-primary" />
+                              </div>
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-sm truncate pr-8">{doc.original_filename}</h4>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-black">{formatLabel(doc.category) || 'Root'}</p>
+                              </div>
+                              <div className="mt-4 pt-4 border-t border-border/30 flex justify-between items-center">
+                                <div className="text-[10px] font-bold text-muted-foreground">{Math.round(doc.file_size / 1024)} KB</div>
+                                <div className="flex items-center gap-2">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0"
+                                    onClick={() => handleViewDocument(doc, doc.status === 'needs_review')}
+                                  >
+                                    View <ExternalLink className="w-3 h-3 ml-1" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-destructive p-0"
+                                    onClick={() => handleDeleteDocument(doc.id)}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </>
                     ) : (
                       <div className="col-span-full py-12 text-center text-muted-foreground font-semibold">
                         No documents match your filter criteria.
@@ -618,6 +773,60 @@ export default function PropertyDetail() {
                   </motion.div>
                 )}
               </AnimatePresence>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-2xl bg-card/40 backdrop-blur-xl overflow-hidden mt-8">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 bg-muted/10 px-8 py-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Image className="w-5 h-5 text-primary" />
+                </div>
+                <CardTitle className="text-lg font-bold">Property Gallery</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8">
+              <div className="mb-8">
+                <Dropzone propertyId={id!} category="photo" onUploadComplete={handleUploadComplete} />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                {photoDocuments.length > 0 ? (
+                  photoDocuments.map((doc) => (
+                    <div key={doc.id} className="group relative aspect-square rounded-xl overflow-hidden border border-border/50 bg-muted/20">
+                      <AuthenticatedImage 
+                        docId={doc.id} 
+                        alt={doc.original_filename} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                        <p className="text-white text-xs font-bold truncate">{doc.original_filename}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            className="h-7 text-[10px] w-full"
+                            onClick={() => handleViewDocument(doc)}
+                          >
+                            <ExternalLink className="w-3 h-3 mr-1" /> View
+                          </Button>
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleDeleteDocument(doc.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-full py-12 text-center text-muted-foreground font-semibold bg-muted/10 rounded-xl border border-dashed border-border/50">
+                    No photos uploaded yet.
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -646,16 +855,31 @@ export default function PropertyDetail() {
             </CardHeader>
             <CardContent className="p-6 space-y-4">
               {[
-                { label: 'Financial Verification', status: 'verified', count: 12 },
-                { label: 'Lease Abstracts', status: 'pending', count: 4 },
-                { label: 'Technical DD', status: 'warning', count: 2 }
+                { 
+                  label: 'Financial Verification', 
+                  status: documents.some(d => d.category === 'financial' && d.status === 'verified') ? 'verified' : 'pending',
+                  count: documents.filter(d => d.category === 'financial').length 
+                },
+                { 
+                  label: 'Lease Abstracts', 
+                  status: documents.some(d => d.category === 'lease' && d.status === 'verified') ? 'verified' : 'pending',
+                  count: documents.filter(d => d.category === 'lease').length 
+                },
+                { 
+                  label: 'Technical DD', 
+                  status: documents.some(d => d.category === 'due_diligence' && d.status === 'verified') ? 'verified' : 'pending',
+                  count: documents.filter(d => d.category === 'due_diligence').length 
+                }
               ].map((item, i) => (
                 <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-muted/30 border border-border/50">
                   <div className="flex flex-col">
                     <span className="text-xs font-bold">{item.label}</span>
                     <span className="text-[10px] text-muted-foreground uppercase font-black">{item.count} items processed</span>
                   </div>
-                  <Badge variant={item.status === 'verified' ? 'success' : item.status === 'warning' ? 'destructive' : 'secondary'} className="text-[10px] font-bold">
+                  <Badge 
+                    variant={item.status === 'verified' ? 'success' : item.status === 'warning' ? 'destructive' : 'secondary'} 
+                    className="text-[10px] font-bold"
+                  >
                     {item.status}
                   </Badge>
                 </div>

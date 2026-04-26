@@ -5,29 +5,50 @@ import { apiClient } from '../../api/client';
 
 interface DropzoneProps {
   propertyId: string;
+  category?: string;
   onUploadComplete?: () => void;
 }
 
-export function Dropzone({ propertyId, onUploadComplete }: DropzoneProps) {
+export function Dropzone({ propertyId, category, onUploadComplete }: DropzoneProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const handleUpload = async (files: File[]) => {
-    if (files.length === 0) return;
+  const handleUpload = async (filesToUpload: { file: File, path: string }[]) => {
+    if (filesToUpload.length === 0) return;
     
     setIsUploading(true);
     setStatus('idle');
     
-    const formData = new FormData();
-    // Support multiple files if needed, but the backend usually expects one per request
-    // or we loop through them. Let's do a loop for reliability.
-    
     try {
-      for (const file of files) {
+      for (const { file, path } of filesToUpload) {
         const data = new FormData();
         data.append('files', file);
         data.append('property_id', propertyId);
+        
+        let fileCategory = category;
+        let fileSubcategory = null;
+
+        // If path is provided (from folder drag/drop), try to derive category/subcategory
+        if (path) {
+          const parts = path.split('/').filter(Boolean);
+          // e.g. path="expenses/School_Tax/Invoice.pdf"
+          // parts = ["expenses", "School_Tax", "Invoice.pdf"]
+          if (parts.length > 1) {
+            fileCategory = parts[0];
+          }
+          if (parts.length > 2) {
+            fileSubcategory = parts[1];
+          }
+        }
+
+        if (fileCategory) {
+          data.append('category', fileCategory);
+        }
+        if (fileSubcategory) {
+          data.append('subcategory', fileSubcategory);
+        }
+        
         await apiClient.post('/documents/upload', data);
       }
       setStatus('success');
@@ -52,16 +73,54 @@ export function Dropzone({ propertyId, onUploadComplete }: DropzoneProps) {
     setIsDragActive(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const getFilesFromEntry = async (entry: any, path: string = ''): Promise<{file: File, path: string}[]> => {
+    if (entry.isFile) {
+      return new Promise((resolve) => {
+        entry.file((file: File) => {
+          resolve([{ file, path: path ? `${path}/${file.name}` : file.name }]);
+        });
+      });
+    } else if (entry.isDirectory) {
+      const dirReader = entry.createReader();
+      return new Promise((resolve) => {
+        dirReader.readEntries(async (entries: any[]) => {
+          const promises = entries.map(e => getFilesFromEntry(e, path ? `${path}/${entry.name}` : entry.name));
+          const results = await Promise.all(promises);
+          resolve(results.flat());
+        });
+      });
+    }
+    return [];
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragActive(false);
-    const files = Array.from(e.dataTransfer.files);
-    handleUpload(files);
+    
+    const items = e.dataTransfer.items;
+    let filesToUpload: {file: File, path: string}[] = [];
+    
+    if (items) {
+      const promises = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i].webkitGetAsEntry();
+        if (item) {
+          promises.push(getFilesFromEntry(item));
+        }
+      }
+      const results = await Promise.all(promises);
+      filesToUpload = results.flat();
+    } else {
+      const files = Array.from(e.dataTransfer.files);
+      filesToUpload = files.map(file => ({ file, path: file.name }));
+    }
+    
+    handleUpload(filesToUpload);
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    handleUpload(files);
+    handleUpload(files.map(file => ({ file, path: file.name })));
   };
 
   return (
@@ -108,15 +167,17 @@ export function Dropzone({ propertyId, onUploadComplete }: DropzoneProps) {
         
         <div>
           <p className="text-lg font-bold tracking-tight">
-            {isUploading ? "Uploading to AI Pipeline..." : 
-             status === 'success' ? "Ingestion Complete" :
+            {isUploading ? "Uploading..." : 
+             status === 'success' ? "Upload Complete" :
              status === 'error' ? "Upload Failed" :
+             category === 'photo' ? "Drop property photos here" :
              "Drop documents for AI Extraction"}
           </p>
           <p className="text-sm text-muted-foreground mt-1 font-medium">
-            {isUploading ? "Your documents are being indexed for RAG." : 
-             status === 'success' ? "Documents are now being processed by GPT-4o." :
+            {isUploading ? "Your files are being processed." : 
+             status === 'success' ? (category === 'photo' ? "Photos added to gallery." : "Documents are now being processed by GPT-4o.") :
              status === 'error' ? "Please check file format and try again." :
+             category === 'photo' ? "Support for JPG, PNG, TIFF." :
              "Support for PDF, Images, and Excel."}
           </p>
         </div>

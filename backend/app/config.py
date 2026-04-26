@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
 
     # CORS
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://localhost:3000"
 
     # OCR confidence threshold for HITL
     OCR_CONFIDENCE_THRESHOLD: float = 85.0
