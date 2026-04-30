@@ -1,4 +1,5 @@
 import io
+import csv
 import logging
 import asyncio
 from typing import Optional, List, Dict, Any
@@ -15,10 +16,94 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _extract_from_excel(file_bytes: bytes, file_type: str) -> dict:
+    """
+    Extract text content from Excel (.xlsx, .xls) or CSV files.
+    Converts spreadsheet data to structured plain text for AI ingestion.
+    """
+    text_parts = []
+
+    if file_type == "csv":
+        try:
+            content = file_bytes.decode("utf-8", errors="replace")
+            reader = csv.reader(io.StringIO(content))
+            rows = list(reader)
+            if rows:
+                header = rows[0]
+                text_parts.append("Columns: " + " | ".join(str(c) for c in header))
+                text_parts.append("")
+                for i, row in enumerate(rows[1:], 1):
+                    if any(cell.strip() for cell in row):
+                        row_text = " | ".join(str(c) for c in row)
+                        text_parts.append(f"Row {i}: {row_text}")
+            return {
+                "text": "\n".join(text_parts),
+                "confidence": 95.0,
+                "blocks": [],
+                "method": "csv-parse",
+            }
+        except Exception as e:
+            logger.error(f"CSV parse failed: {e}")
+            return {"text": "", "confidence": 0.0, "blocks": [], "method": "none"}
+
+    # Excel: .xlsx or .xls
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            text_parts.append(f"=== Sheet: {sheet_name} ===")
+            rows_found = 0
+            for row in ws.iter_rows(values_only=True):
+                # Skip entirely empty rows
+                if not any(cell is not None and str(cell).strip() for cell in row):
+                    continue
+                row_text = " | ".join(str(c) if c is not None else "" for c in row)
+                text_parts.append(row_text)
+                rows_found += 1
+                if rows_found >= 500:  # Cap at 500 rows per sheet to avoid token overflow
+                    text_parts.append(f"[Truncated after 500 rows]")
+                    break
+            text_parts.append("")
+        wb.close()
+
+        full_text = "\n".join(text_parts)
+        return {
+            "text": full_text,
+            "confidence": 95.0,
+            "blocks": [],
+            "method": "openpyxl",
+        }
+    except Exception as e:
+        logger.error(f"openpyxl extraction failed: {e}")
+        # Fallback: try xlrd for older .xls files
+        if file_type == "xls":
+            try:
+                import xlrd
+                wb = xlrd.open_workbook(file_contents=file_bytes)
+                for sheet_idx in range(wb.nsheets):
+                    ws = wb.sheet_by_index(sheet_idx)
+                    text_parts.append(f"=== Sheet: {ws.name} ===")
+                    for row_idx in range(min(ws.nrows, 500)):
+                        row_text = " | ".join(str(ws.cell_value(row_idx, col)) for col in range(ws.ncols))
+                        text_parts.append(row_text)
+                    text_parts.append("")
+                return {
+                    "text": "\n".join(text_parts),
+                    "confidence": 90.0,
+                    "blocks": [],
+                    "method": "xlrd",
+                }
+            except Exception as e2:
+                logger.error(f"xlrd fallback also failed: {e2}")
+
+        return {"text": "", "confidence": 0.0, "blocks": [], "method": "none"}
+
+
 async def extract_text_from_file(file_bytes: bytes, file_type: str) -> dict:
     """
-    Extract text from a document using AWS Textract.
-    Institutional Grade: For PDFs, uses image preprocessing for highest fidelity.
+    Extract text from a document using AWS Textract (PDFs/images) or
+    native parsers for Excel/CSV.
     
     Returns:
         {
@@ -28,6 +113,11 @@ async def extract_text_from_file(file_bytes: bytes, file_type: str) -> dict:
             "method": str
         }
     """
+    # Excel and CSV: use native parsers (no OCR needed)
+    if file_type in ("xlsx", "xls", "csv"):
+        logger.info(f"OCR: Using native parser for {file_type} file")
+        return await asyncio.to_thread(_extract_from_excel, file_bytes, file_type)
+
     # For institutional grade processing of PDFs, we convert to images first
     if file_type == "pdf":
         logger.info("OCR: Starting institutional-grade PDF-to-image preprocessing")

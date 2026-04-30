@@ -1,5 +1,6 @@
 """
 Document router: upload, list, get, verify (HITL), and serve files.
+Auto-triggers the AI pipeline immediately after every upload.
 """
 import os
 import uuid
@@ -7,7 +8,7 @@ import shutil
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +22,23 @@ from app.schemas import (
 )
 from app.auth import get_current_user, User
 from app.config import get_settings
+from app.services.pipeline import process_document_background
 
 settings = get_settings()
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
+
+# Allowed file extensions and their MIME types
+ALLOWED_EXTENSIONS = {
+    "pdf": "application/pdf",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "tiff": "image/tiff",
+    "tif": "image/tiff",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xls": "application/vnd.ms-excel",
+    "csv": "text/csv",
+}
 
 
 @router.post("/upload", response_model=List[DocumentResponse])
@@ -33,10 +48,11 @@ async def upload_documents(
     subcategory: Optional[str] = Form(None),
     apartment_id: Optional[int] = Form(None),
     files: List[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload one or more documents to a property."""
+    """Upload one or more documents to a property and auto-trigger AI pipeline."""
     # Verify property belongs to user's tenant
     result = await db.execute(
         select(Property).where(
@@ -49,22 +65,24 @@ async def upload_documents(
         raise HTTPException(status_code=404, detail="Property not found")
 
     uploaded = []
+    doc_ids_to_process = []
+
     for file in files:
         # Generate unique filename
-        ext = os.path.splitext(file.filename)[1].lower()
-        unique_name = f"{uuid.uuid4().hex}{ext}"
+        ext = os.path.splitext(file.filename)[1].lower().lstrip(".")
+        unique_name = f"{uuid.uuid4().hex}.{ext}" if ext else f"{uuid.uuid4().hex}"
         file_path = os.path.join(settings.UPLOAD_DIR, str(property_id), unique_name)
 
-        # Create directory
+        # Create directory (preserves existing files)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
         # Save file
         with open(file_path, "wb") as buf:
             shutil.copyfileobj(file.file, buf)
 
-        # Determine file type
-        file_type = ext.lstrip(".")
-        if file_type in ("jpg", "jpeg"):
+        # Normalise file type
+        file_type = ext
+        if file_type in ("jpeg",):
             file_type = "jpg"
 
         # Get file size
@@ -80,14 +98,21 @@ async def upload_documents(
             file_size=file_size,
             category=category,
             subcategory=subcategory,
-            status=DocumentStatus.PENDING.value,
+            # Start as PROCESSING immediately — pipeline will be triggered below
+            status=DocumentStatus.PROCESSING.value,
         )
         db.add(doc)
         await db.flush()
         await db.refresh(doc)
         uploaded.append(DocumentResponse.model_validate(doc))
+        doc_ids_to_process.append(doc.id)
 
     await db.commit()
+
+    # Auto-trigger AI pipeline for every uploaded document
+    for doc_id in doc_ids_to_process:
+        background_tasks.add_task(process_document_background, doc_id, current_user.tenant_id)
+
     return uploaded
 
 
@@ -130,6 +155,7 @@ async def list_documents(
             Document.original_filename.ilike(search_term),
             Document.ai_summary.ilike(search_term),
             Document.subcategory.ilike(search_term),
+            Document.ocr_text.ilike(search_term),
         )
         query = query.where(search_filter)
         count_query = count_query.where(search_filter)
@@ -192,15 +218,7 @@ async def serve_document_file(
     if not os.path.exists(doc.file_path):
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    media_type_map = {
-        "pdf": "application/pdf",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "tiff": "image/tiff",
-        "tif": "image/tiff",
-    }
-    media_type = media_type_map.get(doc.file_type, "application/octet-stream")
+    media_type = ALLOWED_EXTENSIONS.get(doc.file_type, "application/octet-stream")
 
     return FileResponse(
         doc.file_path,
@@ -256,11 +274,11 @@ async def approve_document(
     doc.updated_at = datetime.utcnow()
     await db.flush()
     await db.refresh(doc)
-    
+
     # Notify clients via WebSocket
     from app.routers.agents import notify_clients
     await notify_clients(doc.property_id, {"document_id": doc.id, "status": "verified", "stage": "manual_approval"})
-    
+
     return DocumentResponse.model_validate(doc)
 
 

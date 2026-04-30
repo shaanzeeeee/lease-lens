@@ -12,16 +12,19 @@ interface DropzoneProps {
 export function Dropzone({ propertyId, category, onUploadComplete }: DropzoneProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const handleUpload = async (filesToUpload: { file: File, path: string }[]) => {
     if (filesToUpload.length === 0) return;
     
     setIsUploading(true);
+    setUploadProgress(0);
     setStatus('idle');
     
     try {
-      for (const { file, path } of filesToUpload) {
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const { file, path } = filesToUpload[i];
         const data = new FormData();
         data.append('files', file);
         data.append('property_id', propertyId);
@@ -49,9 +52,16 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
           data.append('subcategory', fileSubcategory);
         }
         
-        await apiClient.post('/documents/upload', data);
+        await apiClient.post('/documents/upload', data, {
+          onUploadProgress: (progressEvent) => {
+            const fileProgress = progressEvent.total ? progressEvent.loaded / progressEvent.total : 0;
+            const overallProgress = Math.round(((i + fileProgress) / filesToUpload.length) * 100);
+            setUploadProgress(overallProgress);
+          }
+        });
       }
       setStatus('success');
+      setUploadProgress(100);
       if (onUploadComplete) onUploadComplete();
       
       // Reset after success
@@ -120,7 +130,7 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
-    handleUpload(files.map(file => ({ file, path: file.name })));
+    handleUpload(files.map(file => ({ file, path: file.webkitRelativePath || file.name })));
   };
 
   return (
@@ -136,18 +146,32 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
         status === 'success' && 'border-green-500/50 bg-green-500/5',
         status === 'error' && 'border-destructive/50 bg-destructive/5'
       )}
-      onClick={() => !isUploading && document.getElementById('dropzone-input')?.click()}
     >
       <input
         id="dropzone-input"
         type="file"
         multiple
         className="hidden"
+        accept=".pdf,.jpg,.jpeg,.png,.tiff,.tif,.xlsx,.xls,.csv,application/pdf,image/jpeg,image/png,image/tiff,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+        onChange={handleFileInput}
+        disabled={isUploading}
+      />
+      <input
+        id="dropzone-input-folder"
+        type="file"
+        multiple
+        className="hidden"
+        // @ts-ignore
+        webkitdirectory="true"
+        directory="true"
         onChange={handleFileInput}
         disabled={isUploading}
       />
       
-      <div className="flex flex-col items-center gap-4">
+      <div 
+        className="flex flex-col items-center gap-4 cursor-pointer"
+        onClick={() => !isUploading && document.getElementById('dropzone-input')?.click()}
+      >
         <div className={cn(
           "p-4 rounded-full transition-all duration-500",
           isDragActive ? "scale-110 bg-primary/20" : "bg-primary/10",
@@ -180,11 +204,42 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
              category === 'photo' ? "Support for JPG, PNG, TIFF." :
              "Support for PDF, Images, and Excel."}
           </p>
+          {!isUploading && status === 'idle' && (
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  document.getElementById('dropzone-input')?.click();
+                }}
+              >
+                Upload Files
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  document.getElementById('dropzone-input-folder')?.click();
+                }}
+              >
+                Upload Folder
+              </Button>
+            </div>
+          )}
         </div>
       </div>
       
       {isUploading && (
-        <div className="absolute bottom-0 left-0 h-1 bg-primary animate-progress-indefinite w-full" />
+        <div className="absolute bottom-0 left-0 h-1.5 bg-muted/30 w-full overflow-hidden">
+          <div 
+            className="h-full bg-primary transition-all duration-300 ease-out" 
+            style={{ width: `${uploadProgress}%` }} 
+          />
+        </div>
       )}
     </div>
   );

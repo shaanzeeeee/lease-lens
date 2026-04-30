@@ -1,10 +1,14 @@
 """
-Properties (assets) router: CRUD, search, dashboard stats.
+Properties (assets) router: CRUD, search, dashboard stats, and ZIP export.
 """
 from typing import Optional
 from datetime import datetime
+import os
+import io
+import zipfile
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -384,3 +388,84 @@ async def get_property_summary(
         } if deal else None,
         "document_count": len(summaries)
     }
+
+
+@router.get("/{prop_id}/export-zip")
+async def export_property_zip(
+    prop_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stream all documents for a property as a single ZIP file.
+    Files are organized by category/subcategory matching the UI folder structure.
+    """
+    result = await db.execute(
+        select(Property).where(
+            Property.id == prop_id,
+            Property.tenant_id == current_user.tenant_id,
+        )
+    )
+    prop = result.scalar_one_or_none()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Fetch all documents for the property
+    docs_result = await db.execute(
+        select(Document).where(Document.property_id == prop_id)
+    )
+    docs = docs_result.scalars().all()
+
+    if not docs:
+        raise HTTPException(status_code=404, detail="No documents found for this property")
+
+    # Build ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        seen_names: dict[str, int] = {}  # track duplicate names within same folder
+
+        for doc in docs:
+            if not os.path.exists(doc.file_path):
+                continue
+
+            # Build folder path matching UI structure: category/subcategory/
+            category = doc.category or "Uncategorized"
+            parts = [category]
+            if doc.subcategory:
+                parts.append(doc.subcategory)
+
+            folder_path = "/".join(parts)
+            display_name = doc.original_filename or doc.filename
+
+            # Deduplicate filenames within the same folder
+            key = f"{folder_path}/{display_name}"
+            if key in seen_names:
+                seen_names[key] += 1
+                name_stem, ext = os.path.splitext(display_name)
+                display_name = f"{name_stem} ({seen_names[key]}){ext}"
+            else:
+                seen_names[key] = 0
+
+            arcname = f"{folder_path}/{display_name}"
+
+            try:
+                zf.write(doc.file_path, arcname=arcname)
+            except Exception as e:
+                # Skip unreadable files but continue
+                import logging
+                logging.getLogger(__name__).warning(f"Skipping doc {doc.id} in ZIP: {e}")
+
+    zip_buffer.seek(0)
+
+    # Sanitise property name for filename
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in prop.name).strip()
+    zip_filename = f"{safe_name}_Documents.zip"
+
+    return StreamingResponse(
+        iter([zip_buffer.read()]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+            "Content-Type": "application/zip",
+        },
+    )

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Skeleton, Modal } from '../components/ui/components';
 import { apiClient } from '../api/client';
@@ -8,7 +8,7 @@ import {
   Search, ExternalLink, Calculator,
   TrendingUp, Wallet, ArrowUpRight,
   Filter, LayoutGrid, List, Trash2, Loader2, MessageSquare, Send, X, Image,
-  Folder, ChevronRight
+  Folder, ChevronRight, Download, FileSpreadsheet
 } from 'lucide-react';
 import { Dropzone } from '../components/ui/Dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -63,8 +63,14 @@ export default function PropertyDetail() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [processingDocs, setProcessingDocs] = useState<Record<number, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [activeTab, setActiveTab] = useState('Explorer');
   const [currentPath, setCurrentPath] = useState<string[]>([]);
+  const [fileViewMode, setFileViewMode] = useState<'list' | 'grid'>('list');
+  // Keep a ref always in sync so fetchData can restore the path after refresh
+  const currentPathRef = useRef<string[]>([]);
+  useEffect(() => { currentPathRef.current = currentPath; }, [currentPath]);
 
   // Pro-Forma States
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
@@ -80,6 +86,7 @@ export default function PropertyDetail() {
 
   const [apartments, setApartments] = useState<any[]>([]);
   const [apartmentsLoading, setApartmentsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadChatHistory = async () => {
     try {
@@ -132,6 +139,10 @@ export default function PropertyDetail() {
         setError('Property not found or server error');
       } finally {
         setLoading(false);
+        // ── Restore the current folder path after refresh ──
+        // This prevents the folder structure from resetting to root when
+        // new documents are uploaded or the pipeline completes.
+        setCurrentPath(currentPathRef.current);
       }
     };
 
@@ -208,6 +219,24 @@ export default function PropertyDetail() {
       loadChatHistory();
     }
   }, [isCopilotOpen, id]);
+
+  useEffect(() => {
+    if (searchQuery.trim().length > 1) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        apiClient.get(`/documents/?property_id=${id}&search=${encodeURIComponent(searchQuery.trim())}&page_size=100`)
+          .then(res => {
+            setSearchResults(res.data.items);
+          })
+          .catch(err => console.error('Search failed:', err))
+          .finally(() => setIsSearching(false));
+      }, 400);
+      return () => clearTimeout(timer);
+    } else {
+      setSearchResults([]);
+      setIsSearching(false);
+    }
+  }, [searchQuery, id]);
 
   useEffect(() => {
     return () => {
@@ -340,7 +369,34 @@ export default function PropertyDetail() {
     }
   };
 
-  const [fileViewMode, setFileViewMode] = useState<'list' | 'grid'>('list');
+  const handleExportZip = async () => {
+    if (!id) return;
+    setIsExporting(true);
+    try {
+      const response = await apiClient.get(`/properties/${id}/export-zip`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: 'application/zip' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Use property name from Content-Disposition if available, otherwise fallback
+      const disposition = response.headers['content-disposition'] || '';
+      const match = disposition.match(/filename="(.+)"/);
+      a.download = match ? match[1] : `${property?.name || 'Property'}_Documents.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Failed to export documents. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+
 
   const latestDeal = deals.length > 0 ? deals[0] : null;
 
@@ -377,11 +433,9 @@ export default function PropertyDetail() {
   let currentFiles: any[] = [];
 
   if (activeTab === 'Explorer') {
-    if (searchQuery) {
-      currentFiles = nonPhotoDocs.filter(doc => 
-        doc.original_filename?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        doc.category?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+    if (searchQuery.trim().length > 1) {
+      currentFolders = [];
+      currentFiles = searchResults.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
     } else {
       if (currentPath.length === 0) {
         currentFolders = Array.from(new Set(nonPhotoDocs.filter(d => d.category && d.category !== 'Uncategorized').map(d => d.category)));
@@ -455,6 +509,19 @@ export default function PropertyDetail() {
           <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50" onClick={handleFetchSummary}>
             <LayoutGrid className="w-4 h-4 mr-2" /> Overview
           </Button>
+          <Button
+            variant="outline"
+            className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50 hover:text-primary transition-all"
+            onClick={handleExportZip}
+            disabled={isExporting}
+            title="Download all documents as ZIP"
+          >
+            {isExporting ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Exporting...</>
+            ) : (
+              <><Download className="w-4 h-4 mr-2" /> Export ZIP</>
+            )}
+          </Button>
         </div>
       </div>
 
@@ -515,10 +582,14 @@ export default function PropertyDetail() {
                   </Button>
                 </div>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  {isSearching ? (
+                    <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary animate-spin" />
+                  ) : (
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  )}
                   <input 
-                    placeholder="Filter docs..." 
-                    className="bg-muted/50 border border-border/50 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30" 
+                    placeholder="Search docs or contents..." 
+                    className="bg-muted/50 border border-border/50 rounded-lg pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 w-64" 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -672,6 +743,13 @@ export default function PropertyDetail() {
                                 </td>
                               </tr>
                             ))}
+                            {currentFiles.length === 0 && currentFolders.length === 0 && searchQuery && !isSearching && (
+                              <tr>
+                                <td colSpan={4} className="px-8 py-12 text-center text-muted-foreground">
+                                  No documents found matching "{searchQuery}". Try a different keyword.
+                                </td>
+                              </tr>
+                            )}
                             {currentFiles.map((doc) => (
                               <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
                                 <td className="px-8 py-5">
@@ -680,7 +758,11 @@ export default function PropertyDetail() {
                                       className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors"
                                       onClick={() => handleViewDocument(doc)}
                                     >
-                                      <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                                      {['xlsx','xls','csv'].includes(doc.file_type?.toLowerCase() || '') ? (
+                                        <FileSpreadsheet className="w-5 h-5 text-green-500 group-hover:text-green-400 transition-colors" />
+                                      ) : (
+                                        <FileText className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                                      )}
                                     </div>
                                     <div>
                                       <div className="font-bold text-foreground">{doc.original_filename}</div>
@@ -963,6 +1045,24 @@ export default function PropertyDetail() {
               <div className="flex flex-col items-center gap-4">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Loading Institutional Data...</p>
+              </div>
+            ) : ['xlsx','xls','csv'].includes(previewDoc?.file_type?.toLowerCase() || '') ? (
+              // Excel/CSV: browser cannot render these in an iframe — offer download instead
+              <div className="text-center p-8 space-y-4">
+                <div className="w-20 h-20 bg-green-500/10 rounded-2xl flex items-center justify-center mx-auto">
+                  <FileSpreadsheet className="w-10 h-10 text-green-500" />
+                </div>
+                <div>
+                  <p className="font-bold text-lg">{previewDoc?.original_filename}</p>
+                  <p className="text-sm text-muted-foreground mt-1">Spreadsheet files cannot be previewed inline.</p>
+                  <p className="text-xs text-muted-foreground">The file has been ingested and indexed for AI analysis.</p>
+                </div>
+                <Button
+                  onClick={() => window.open(`/api/documents/${previewDoc?.id}/file`, '_blank')}
+                  className="mt-4"
+                >
+                  <Download className="w-4 h-4 mr-2" /> Download File
+                </Button>
               </div>
             ) : selectedFileUrl ? (
               <iframe 
