@@ -1,28 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Building2, Loader2, ChevronDown } from 'lucide-react';
+import { Send, Bot, User, Building2, Loader2, ChevronDown, MessageSquare, Sparkles, Trash2, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button, Input, Card } from '../components/ui/components';
 import { apiClient } from '../api/client';
-
-interface Source {
-  doc_id: number;
-  filename: string;
-  score: number;
-  snippet: string;
-  page: number;
-}
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  sources?: Source[];
-}
-
-interface Property {
-  id: number;
-  name: string;
-  address: string;
+  sources?: any[];
+  timestamp?: string;
 }
 
 export default function Concierge() {
@@ -31,229 +20,265 @@ export default function Concierge() {
       id: 'welcome',
       role: 'assistant',
       content: 'Hello. I am your Investment Concierge. How can I assist you in analyzing your portfolio today? I can answer questions about NOI, exact clauses in lease agreements, or provide insights into your Cap Rates.',
-      sources: []
+      sources: [],
+      timestamp: new Date().toLocaleTimeString()
     }
   ]);
-  const [inputStr, setInputStr] = useState('');
-   const [isTyping, setIsTyping] = useState(false);
-  const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
-  const [selectedFileBlob, setSelectedFileBlob] = useState<Blob | null>(null);
-  const [properties, setProperties] = useState<Property[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [properties, setProperties] = useState<any[]>([]);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch available properties on mount
   useEffect(() => {
     const fetchProperties = async () => {
       try {
         const res = await apiClient.get('/properties/');
-        const items = res.data.items || res.data || [];
+        const data = res.data;
+        // Robustly handle different response formats
+        const items = data?.items || (Array.isArray(data) ? data : []);
         setProperties(items);
+        
+        // Auto-select if there's only one property
+        if (items.length === 1) {
+          setSelectedPropertyId(items[0].id);
+        }
       } catch (err) {
         console.error('Failed to fetch properties', err);
+        setProperties([]);
       }
     };
     fetchProperties();
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (selectedFileUrl) window.URL.revokeObjectURL(selectedFileUrl);
-    };
-  }, [selectedFileUrl]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages]);
 
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!inputStr.trim() || isTyping) return;
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: inputStr };
-    setMessages(prev => [...prev, userMsg]);
-    setInputStr('');
-    setIsTyping(true);
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: input,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
 
     try {
-      const res = await apiClient.post('/chat/', {
-        message: userMsg.content,
-        property_id: selectedPropertyId, // scoped to selected property (null = all)
+      const response = await apiClient.post('/chat/', {
+        message: input,
+        property_id: selectedPropertyId
       });
 
-      const aiMsg: Message = {
+      const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: res.data.response,
-        sources: res.data.sources
+        content: response.data.response,
+        sources: response.data.sources,
+        timestamp: new Date().toLocaleTimeString()
       };
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (err) {
-      console.error(err);
-      setMessages(prev => [...prev, {
+
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'I encountered an error querying the vector store. Please try again or check connection.'
-      }]);
+        content: 'I apologize, but I encountered an error while processing your request. Please check your connection or try again later.',
+        timestamp: new Date().toLocaleTimeString()
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
-      setIsTyping(false);
+      setIsLoading(false);
     }
   };
 
-  const handleViewFile = async (docId: number) => {
-    try {
-      if (selectedFileUrl) window.URL.revokeObjectURL(selectedFileUrl);
-      
-      const response = await apiClient.get(`/documents/${docId}/file`, {
-        responseType: 'blob'
-      });
-      
-      const blob = new Blob([response.data], { type: response.headers['content-type'] as string || 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
-      
-      setSelectedFileBlob(blob);
-      setSelectedFileUrl(url);
-    } catch (err) {
-      console.error('Failed to load file preview', err);
-    }
+  const clearChat = () => {
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Hello. I am your Investment Concierge. How can I assist you in analyzing your portfolio today?',
+        sources: [],
+        timestamp: new Date().toLocaleTimeString()
+      }
+    ]);
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="h-[calc(100vh-10rem)] flex flex-col gap-6 max-w-6xl mx-auto">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Investment Concierge</h1>
-          <p className="text-muted-foreground mt-1">Chat securely with your LangGraph agents and Pinecone RAG store.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Sparkles className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Investment Concierge</h1>
+          </div>
+          <p className="text-muted-foreground text-sm">AI-powered insights for your real estate portfolio</p>
         </div>
-        
-        <div className="flex items-center gap-3 bg-card border border-primary/10 px-4 py-2 rounded-xl shadow-sm">
-          <Building2 className="w-4 h-4 text-primary" />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Context Scoping</span>
-            <select 
-              value={selectedPropertyId || ''} 
+
+        <div className="flex items-center gap-3">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+              <Building2 className="w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            </div>
+            <select
+              className="pl-10 pr-10 py-2 bg-background border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all appearance-none cursor-pointer min-w-[200px]"
+              value={selectedPropertyId || ''}
               onChange={(e) => setSelectedPropertyId(e.target.value ? Number(e.target.value) : null)}
-              className="bg-transparent border-none text-sm font-medium focus:ring-0 p-0 pr-8 appearance-none cursor-pointer"
-              style={{ backgroundImage: 'none' }}
             >
-              <option value="">All Properties (Global)</option>
-              {properties.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+              <option value="">All Properties (General)</option>
+              {Array.isArray(properties) && properties.map((prop) => (
+                <option key={prop.id} value={prop.id}>
+                  {prop.name}
+                </option>
               ))}
             </select>
+            <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            </div>
           </div>
-          <ChevronDown className="w-4 h-4 text-muted-foreground ml-[-24px] pointer-events-none" />
+          
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={clearChat}
+            className="rounded-xl border-border/50 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/20 transition-all"
+            title="Clear Chat"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </Button>
         </div>
       </div>
 
-      <Card className="flex-1 flex flex-col overflow-hidden border-primary/10 shadow-lg">
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-accent/10">
+      {/* Main Chat Area */}
+      <Card className="flex-1 flex flex-col overflow-hidden border-border/50 shadow-xl bg-card/50 backdrop-blur-sm rounded-2xl relative">
+        {/* Messages Container */}
+        <div 
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth"
+        >
           <AnimatePresence initial={false}>
             {messages.map((msg) => (
               <motion.div
                 key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex gap-4 max-w-4xl mx-auto ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.2 }}
+                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`shrink-0 h-10 w-10 rounded-xl flex items-center justify-center shadow-sm ${
-                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card border text-foreground'
-                }`}>
-                  {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5 text-primary" />}
-                </div>
-
-                <div className={`flex flex-col gap-2 min-w-0 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-5 py-3.5 rounded-2xl text-[15px] leading-relaxed max-w-[90%] shadow-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-primary text-primary-foreground rounded-tr-sm' 
-                      : 'bg-card border rounded-tl-sm'
+                <div className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-1 ${
+                    msg.role === 'assistant' 
+                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' 
+                      : 'bg-muted text-muted-foreground'
                   }`}>
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                    {msg.role === 'assistant' ? <Bot size={18} /> : <User size={18} />}
                   </div>
-
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2 w-full max-w-[90%]">
-                      {msg.sources.map((src, i) => (
-                        <div 
-                          key={i} 
-                          onClick={() => handleViewFile(src.doc_id)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-background border rounded-md text-xs text-muted-foreground w-full group hover:border-primary/30 transition-colors cursor-pointer"
+                  
+                  <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-4 rounded-2xl shadow-sm ${
+                      msg.role === 'user' 
+                        ? 'bg-primary text-primary-foreground' 
+                        : 'bg-background border border-border/50'
+                    }`}>
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            table: ({node, ...props}) => <div className="overflow-x-auto my-3"><table className="border-collapse border border-border/50 w-full" {...props} /></div>,
+                            th: ({node, ...props}) => <th className="border border-border/50 p-2 bg-muted/50 font-bold text-left" {...props} />,
+                            td: ({node, ...props}) => <td className="border border-border/50 p-2" {...props} />,
+                            ul: ({node, ...props}) => <ul className="list-disc ml-4 space-y-1 my-2" {...props} />,
+                            ol: ({node, ...props}) => <ol className="list-decimal ml-4 space-y-1 my-2" {...props} />,
+                            p: ({node, ...props}) => <p className="mb-0 last:mb-0" {...props} />,
+                            code: ({node, inline, ...props}: any) => 
+                              inline 
+                                ? <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono" {...props} />
+                                : <code className="block bg-muted p-3 rounded-lg text-xs font-mono overflow-x-auto" {...props} />
+                          }}
                         >
-                          <Building2 className="w-3.5 h-3.5 shrink-0 text-primary/70" />
-                          <span className="truncate font-medium">{src.filename}</span>
-                          <span className="bg-accent px-1.5 py-0.5 rounded text-[10px] ml-auto">P.{src.page}</span>
-                        </div>
-                      ))}
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
-                  )}
+                    
+                    {msg.timestamp && (
+                      <span className="text-[10px] text-muted-foreground mt-1.5 px-1 font-medium">
+                        {msg.timestamp}
+                      </span>
+                    )}
+
+                    {msg.sources && msg.sources.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {msg.sources.map((source, idx) => (
+                          <div 
+                            key={idx}
+                            className="text-[10px] bg-muted/50 hover:bg-muted border border-border/50 px-2 py-1 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 group"
+                          >
+                            <Building2 className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
+                            <span className="max-w-[120px] truncate">{source.filename}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             ))}
           </AnimatePresence>
           
-          {isTyping && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 max-w-4xl mx-auto">
-              <div className="shrink-0 h-10 w-10 rounded-xl bg-card border flex items-center justify-center shadow-sm">
-                <Loader2 className="w-5 h-5 text-primary animate-spin" />
+          {isLoading && (
+            <motion.div 
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-4"
+            >
+              <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center animate-pulse">
+                <Bot size={18} />
               </div>
-              <div className="px-5 py-4 rounded-2xl bg-card border rounded-tl-sm flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" />
-                <div className="w-2 h-2 rounded-full bg-primary/60 animate-bounce [animation-delay:0.2s]" />
-                <div className="w-2 h-2 rounded-full bg-primary/80 animate-bounce [animation-delay:0.4s]" />
+              <div className="flex gap-1 items-center bg-muted/30 px-4 py-2 rounded-2xl">
+                <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce"></div>
               </div>
             </motion.div>
           )}
-          <div ref={bottomRef} className="h-px" />
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-card border-t shrink-0">
-          <form onSubmit={handleSend} className="max-w-4xl mx-auto relative flex items-center">
+        <div className="p-6 bg-background/50 border-t border-border/50 backdrop-blur-md">
+          <div className="relative max-w-4xl mx-auto flex gap-3">
             <Input
-              value={inputStr}
-              onChange={(e) => setInputStr(e.target.value)}
-              placeholder="Ask about NOI, lease details, or upload errors..."
-              className="pr-14 h-14 rounded-full bg-accent/30 focus-visible:ring-primary/30 text-base"
-              disabled={isTyping}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+              placeholder={selectedPropertyId ? "Ask a question about this property..." : "Ask a general question about your portfolio..."}
+              className="flex-1 bg-background border-border/50 rounded-xl h-12 pr-12 focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+              disabled={isLoading}
             />
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!inputStr.trim() || isTyping}
-              className="absolute right-2 h-10 w-10 rounded-full"
+            <Button 
+              onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              className="rounded-xl h-12 px-6 shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
-              <Send className="w-4 h-4 ml-0.5" />
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
-          </form>
-          <div className="text-center mt-3">
-             <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest">Abelam AI can make mistakes. Verify critical figures in original documents.</p>
           </div>
+          <p className="text-[10px] text-center text-muted-foreground mt-3 uppercase tracking-widest font-semibold opacity-50">
+            Powered by Abelam Deal Intelligence Agent
+          </p>
         </div>
       </Card>
-
-      {/* File Preview Modal */}
-      {selectedFileUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setSelectedFileUrl(null)}>
-          <div className="bg-background rounded-xl overflow-hidden shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-bold flex items-center gap-2 text-lg">
-                <Bot className="w-5 h-5 text-primary" /> Document Source Preview
-              </h3>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedFileUrl(null)}>Close</Button>
-            </div>
-            <div className="flex-1 bg-muted/30">
-              {selectedFileBlob?.type?.startsWith('image/') ? (
-                <div className="w-full h-full flex items-center justify-center p-8 overflow-auto">
-                   <img src={selectedFileUrl} alt="Preview" className="max-w-full max-h-full object-contain shadow-lg rounded" />
-                </div>
-              ) : (
-                <iframe src={selectedFileUrl} className="w-full h-full border-none" title="Document Preview" />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

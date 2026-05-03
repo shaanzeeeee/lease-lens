@@ -307,6 +307,146 @@ async def list_apartments(
     return [ApartmentResponse.model_validate(a) for a in apartments]
 
 
+@router.get("/{prop_id}/apartments/{apt_id}/detail")
+async def get_apartment_detail(
+    prop_id: int,
+    apt_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get a rich, structured detail view for a single apartment unit.
+    Aggregates: unit info, linked documents, deal metrics, and lease data.
+    """
+    # Verify property ownership
+    result = await db.execute(
+        select(Property).where(
+            Property.id == prop_id,
+            Property.tenant_id == current_user.tenant_id,
+        )
+    )
+    prop = result.scalar_one_or_none()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Fetch the apartment
+    result = await db.execute(
+        select(Apartment).where(
+            Apartment.id == apt_id,
+            Apartment.property_id == prop_id,
+        )
+    )
+    apt = result.scalar_one_or_none()
+    if not apt:
+        raise HTTPException(status_code=404, detail="Apartment not found")
+
+    # Fetch linked documents (by apartment_id OR by subcategory/relative_path matching)
+    docs_query = select(Document).where(Document.property_id == prop_id)
+    docs_result = await db.execute(docs_query)
+    all_docs = docs_result.scalars().all()
+
+    # Match documents to this apartment by:
+    # 1) Explicit apartment_id link
+    # 2) Subcategory or relative_path containing the unit number
+    unit_num = apt.unit_number
+    linked_docs = []
+    for doc in all_docs:
+        if doc.apartment_id == apt_id:
+            linked_docs.append(doc)
+        elif unit_num and (
+            (doc.subcategory and unit_num.lower() in doc.subcategory.lower()) or
+            (doc.relative_path and unit_num.lower() in doc.relative_path.lower()) or
+            (doc.original_filename and unit_num.lower() in doc.original_filename.lower())
+        ):
+            linked_docs.append(doc)
+
+    # Fetch deals from those documents
+    doc_ids = [d.id for d in linked_docs]
+    linked_deals = []
+    if doc_ids:
+        deals_result = await db.execute(
+            select(Deal).where(Deal.document_id.in_(doc_ids))
+        )
+        linked_deals = deals_result.scalars().all()
+
+    # Build structured response
+    documents_summary = []
+    for doc in linked_docs:
+        documents_summary.append({
+            "id": doc.id,
+            "filename": doc.original_filename,
+            "category": doc.category,
+            "subcategory": doc.subcategory,
+            "status": doc.status,
+            "ai_summary": doc.ai_summary,
+            "file_type": doc.file_type,
+            "file_size": doc.file_size,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+        })
+
+    deals_summary = []
+    for deal in linked_deals:
+        deals_summary.append({
+            "id": deal.id,
+            "deal_name": deal.deal_name,
+            "stage": deal.stage,
+            "noi": deal.noi,
+            "cap_rate": deal.cap_rate,
+            "gross_revenue": deal.gross_revenue,
+            "operating_expenses": deal.operating_expenses,
+            "cash_on_cash": deal.cash_on_cash,
+            "price_per_unit": deal.price_per_unit,
+            "ai_summary": deal.ai_summary,
+        })
+
+    # Calculate lease status
+    import datetime as dt
+    lease_status = "unknown"
+    days_remaining = None
+    if apt.lease_end:
+        now = dt.datetime.utcnow()
+        delta = apt.lease_end - now
+        days_remaining = delta.days
+        if days_remaining < 0:
+            lease_status = "expired"
+        elif days_remaining < 90:
+            lease_status = "expiring_soon"
+        else:
+            lease_status = "active"
+
+    return {
+        "unit": {
+            "id": apt.id,
+            "unit_number": apt.unit_number,
+            "unit_type": apt.unit_type,
+            "floor": apt.floor,
+            "bedrooms": apt.bedrooms,
+            "bathrooms": apt.bathrooms,
+            "square_feet": apt.square_feet,
+            "monthly_rent": apt.monthly_rent,
+            "annual_rent": round(apt.monthly_rent * 12, 2) if apt.monthly_rent else None,
+            "tenant_name": apt.tenant_name,
+            "status": apt.status,
+            "lease_start": apt.lease_start.isoformat() if apt.lease_start else None,
+            "lease_end": apt.lease_end.isoformat() if apt.lease_end else None,
+            "lease_status": lease_status,
+            "days_remaining": days_remaining,
+        },
+        "property": {
+            "id": prop.id,
+            "name": prop.name,
+            "address": prop.address,
+        },
+        "documents": documents_summary,
+        "deals": deals_summary,
+        "stats": {
+            "total_documents": len(linked_docs),
+            "total_deals": len(linked_deals),
+            "has_active_lease": lease_status == "active",
+        },
+    }
+
+
 @router.post("/{prop_id}/apartments", response_model=ApartmentResponse, status_code=201)
 async def create_apartment(
     prop_id: int,

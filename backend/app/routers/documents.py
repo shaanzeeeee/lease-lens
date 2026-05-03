@@ -10,7 +10,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,7 +18,7 @@ from app.database import get_db
 from app.models import Document, Property, DocumentStatus
 from app.schemas import (
     DocumentResponse, DocumentDetailResponse, DocumentVerifyRequest,
-    PaginatedResponse,
+    PaginatedResponse, DocumentUpdate, FolderRenameRequest, FolderDeleteRequest
 )
 from app.auth import get_current_user, User
 from app.config import get_settings
@@ -47,6 +47,7 @@ async def upload_documents(
     category: str = Form("other"),
     subcategory: Optional[str] = Form(None),
     apartment_id: Optional[int] = Form(None),
+    relative_path: Optional[str] = Form(None),
     files: List[UploadFile] = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
@@ -98,6 +99,7 @@ async def upload_documents(
             file_size=file_size,
             category=category,
             subcategory=subcategory,
+            relative_path=relative_path,
             # Start as PROCESSING immediately — pipeline will be triggered below
             status=DocumentStatus.PROCESSING.value,
         )
@@ -123,7 +125,7 @@ async def list_documents(
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(1000, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -308,3 +310,209 @@ async def delete_document(
     await db.delete(doc)
     await db.commit()
     return None
+
+
+@router.patch("/{doc_id}", response_model=DocumentResponse)
+async def patch_document(
+    doc_id: int,
+    request: DocumentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update document metadata (rename or move)."""
+    result = await db.execute(
+        select(Document)
+        .join(Property)
+        .where(Document.id == doc_id, Property.tenant_id == current_user.tenant_id)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if request.original_filename is not None:
+        doc.original_filename = request.original_filename
+    if request.relative_path is not None:
+        doc.relative_path = request.relative_path
+    if request.category is not None:
+        doc.category = request.category
+    if request.subcategory is not None:
+        doc.subcategory = request.subcategory
+
+    doc.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+@router.post("/folders/rename")
+async def rename_folder(
+    request: FolderRenameRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rename a folder by updating the relative_path of all documents within it."""
+    # Verify property belongs to user
+    result = await db.execute(
+        select(Property).where(
+            Property.id == request.property_id,
+            Property.tenant_id == current_user.tenant_id
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Clean paths: ensure they end with / for prefix matching if they aren't empty
+    old_p = request.old_path.strip("/")
+    new_p = request.new_path.strip("/")
+    
+    if not old_p:
+        raise HTTPException(status_code=400, detail="Cannot rename root folder")
+
+    # Find all documents that match this path
+    # 1. Match by relative_path (standard folder structure)
+    # 2. Match by category/subcategory (virtual folders)
+    
+    parts_old = old_p.split('/')
+    parts_new = new_p.split('/')
+    cat_old = parts_old[0] if len(parts_old) > 0 else None
+    subcat_old = parts_old[1] if len(parts_old) > 1 else None
+    cat_new = parts_new[0] if len(parts_new) > 0 else None
+    subcat_new = parts_new[1] if len(parts_new) > 1 else None
+
+    # Complex query to catch both real and virtual folders
+    conditions = [
+        # Real folders
+        or_(
+            Document.relative_path == old_p,
+            Document.relative_path.like(f"{old_p}/%")
+        )
+    ]
+
+    # Virtual folders (category/subcategory)
+    if len(parts_old) == 1:
+        conditions.append(
+            and_(
+                Document.relative_path == None,
+                Document.category == cat_old
+            )
+        )
+    elif len(parts_old) == 2:
+        conditions.append(
+            and_(
+                Document.relative_path == None,
+                Document.category == cat_old,
+                Document.subcategory == subcat_old
+            )
+        )
+
+    query = select(Document).where(
+        Document.property_id == request.property_id,
+        or_(*conditions)
+    )
+    
+    result = await db.execute(query)
+    docs = result.scalars().all()
+    
+    if not docs:
+        raise HTTPException(status_code=404, detail="Folder not found or empty")
+
+    for doc in docs:
+        if doc.relative_path:
+            # Handle real paths
+            if doc.relative_path == old_p:
+                doc.relative_path = new_p
+            else:
+                doc.relative_path = doc.relative_path.replace(old_p + "/", new_p + "/", 1)
+        else:
+            # Handle virtual paths (category/subcategory)
+            if len(parts_old) == 1:
+                doc.category = cat_new
+            elif len(parts_old) == 2:
+                doc.category = cat_new
+                doc.subcategory = subcat_new
+        
+        doc.updated_at = datetime.utcnow()
+
+    await db.commit()
+    return {"message": f"Successfully renamed folder from {old_p} to {new_p}", "count": len(docs)}
+
+
+@router.post("/folders/delete")
+async def delete_folder(
+    request: FolderDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a folder and all its documents."""
+    # Verify property
+    result = await db.execute(
+        select(Property).where(
+            Property.id == request.property_id,
+            Property.tenant_id == current_user.tenant_id
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    path = request.path.strip("/")
+    if not path:
+        raise HTTPException(status_code=400, detail="Cannot delete root folder")
+
+    # Find all documents that match this path
+    # 1. Match by relative_path (standard folder structure)
+    # 2. Match by category/subcategory (virtual folders)
+    
+    parts = path.split('/')
+    cat = parts[0] if len(parts) > 0 else None
+    subcat = parts[1] if len(parts) > 1 else None
+
+    # Complex query to catch both real and virtual folders
+    conditions = [
+        # Real folders
+        or_(
+            Document.relative_path == path,
+            Document.relative_path.like(f"{path}/%")
+        )
+    ]
+
+    # Virtual folders (category/subcategory)
+    if len(parts) == 1:
+        # Root level folder matches category
+        conditions.append(
+            and_(
+                Document.relative_path == None,
+                Document.category == cat
+            )
+        )
+    elif len(parts) == 2:
+        # Second level folder matches subcategory
+        conditions.append(
+            and_(
+                Document.relative_path == None,
+                Document.category == cat,
+                Document.subcategory == subcat
+            )
+        )
+
+    query = select(Document).where(
+        Document.property_id == request.property_id,
+        or_(*conditions)
+    )
+    
+    result = await db.execute(query)
+    docs = result.scalars().all()
+    
+    if not docs:
+        raise HTTPException(status_code=404, detail="Folder not found or empty")
+
+    for doc in docs:
+        # Delete from disk
+        if os.path.exists(doc.file_path):
+            try:
+                os.remove(doc.file_path)
+            except Exception as e:
+                print(f"Warning: Failed to delete file {doc.file_path}: {e}")
+        await db.delete(doc)
+
+    await db.commit()
+    return {"message": f"Successfully deleted folder {path}", "count": len(docs)}

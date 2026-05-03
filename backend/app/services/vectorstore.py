@@ -118,6 +118,7 @@ async def search_vectors(
     tenant_id: int,
     top_k: int = 5,
     property_id: Optional[int] = None,
+    document_ids: Optional[List[int]] = None,
 ) -> list[dict]:
     """
     Semantic search across indexed documents.
@@ -136,6 +137,9 @@ async def search_vectors(
         filter_dict = {"tenant_id": {"$eq": tenant_id}}
         if property_id:
             filter_dict["property_id"] = {"$eq": property_id}
+        
+        if document_ids:
+            filter_dict["doc_id"] = {"$in": document_ids}
 
         results = await asyncio.to_thread(
             index.query,

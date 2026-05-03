@@ -124,8 +124,8 @@ export default function HitlQueue() {
 
       <div className="flex gap-6 flex-1 min-h-0">
         {/* Document Queue Sidebar */}
-        <Card className="w-80 shrink-0 flex flex-col overflow-hidden bg-card/60 backdrop-blur-md">
-          <CardHeader className="py-4 border-b bg-card">
+        <Card className="w-80 shrink-0 flex flex-col overflow-hidden bg-card/60 backdrop-blur-xl border-border/50">
+          <CardHeader className="py-4 border-b border-border/50 bg-muted/10">
             <CardTitle className="text-sm font-semibold flex items-center justify-between">
               Pending Review
               <span className="text-xs text-muted-foreground font-normal">Confidence</span>
@@ -144,19 +144,19 @@ export default function HitlQueue() {
                   key={doc.id}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                   onClick={() => handleSelect(doc)}
-                  className={`w-full text-left p-3 rounded-lg text-sm transition-all flex flex-col gap-2 border ${
+                  className={`w-full text-left p-3 rounded-xl text-sm transition-all flex flex-col gap-2 border ${
                     selectedDoc?.id === doc.id 
-                      ? 'bg-primary/10 border-primary/30 shadow-sm' 
-                      : 'bg-background hover:bg-accent border-transparent'
+                      ? 'bg-primary/10 border-primary/30 shadow-sm shadow-primary/5' 
+                      : 'bg-transparent hover:bg-accent/50 border-transparent'
                   }`}
                 >
-                  <div className="truncate font-medium flex items-center gap-2">
+                  <div className="truncate font-semibold flex items-center gap-2">
                     <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
                     {doc.original_filename}
                   </div>
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-muted-foreground">ID: {doc.id}</span>
-                    <span className={`font-semibold ${
+                    <span className={`font-bold ${
                       doc.ocr_confidence < 50 ? 'text-destructive' : 'text-orange-500'
                     }`}>
                       {doc.ocr_confidence}%
@@ -170,37 +170,37 @@ export default function HitlQueue() {
 
         {/* Editing/Review Area */}
         {selectedDoc ? (
-          <Card className="flex-1 flex flex-col overflow-hidden">
-            <div className="h-14 border-b bg-muted/40 flex items-center justify-between px-4 shrink-0">
+          <Card className="flex-1 flex flex-col overflow-hidden bg-card/60 backdrop-blur-xl border-border/50">
+            <div className="h-16 border-b border-border/50 bg-muted/20 flex items-center justify-between px-6 shrink-0">
                <div className="font-semibold text-sm flex items-center gap-2 text-foreground">
-                 Analyzing: <span className="text-primary">{selectedDoc.original_filename}</span>
+                 Analyzing: <span className="text-primary tracking-wide">{selectedDoc.original_filename}</span>
                </div>
-               <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+               <div className="flex items-center gap-3">
+                  <Button variant="ghost" size="sm" className="text-destructive font-medium hover:bg-destructive/10 hover:text-destructive">
                     <XCircle className="w-4 h-4 mr-2" /> Reject
                   </Button>
-                  <Button size="sm" onClick={handleApprove} className="bg-green-600 hover:bg-green-700 text-white border-none">
+                  <Button size="sm" onClick={handleApprove} className="bg-emerald-600 hover:bg-emerald-700 text-white border-none font-bold shadow-lg shadow-emerald-600/20">
                     <CheckCircle className="w-4 h-4 mr-2" /> Approve & Parse <ArrowRight className="w-4 h-4 ml-1" />
                   </Button>
                </div>
             </div>
             
-            <div className="flex-1 flex min-h-0 bg-background">
+            <div className="flex-1 flex min-h-0">
                {/* Left side: Rendered Image (Simulation) */}
-               <div className="flex-1 border-r p-6 bg-accent/20 flex flex-col overflow-y-auto">
-                 <div className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-4">Original Document Render</div>
-                 <div className="flex-1 bg-white border rounded-xl shadow-inner flex items-center justify-center relative overflow-hidden">
+               <div className="flex-1 border-r border-border/50 p-6 bg-accent/10 flex flex-col overflow-y-auto">
+                 <div className="text-[11px] uppercase tracking-widest text-muted-foreground font-bold mb-4">Original Document Render</div>
+                 <div className="flex-1 bg-white/5 border border-border/50 rounded-2xl shadow-inner flex items-center justify-center relative overflow-hidden">
                    {previewUrl ? (
                      previewBlob?.type?.startsWith('image/') ? (
                        <img src={previewUrl} alt="Document" className="max-w-full max-h-full object-contain" />
                      ) : (
-                       <iframe src={previewUrl} className="w-full h-full border-none" title="Document Preview" />
+                       <iframe src={previewUrl} className="w-full h-full border-none bg-white" title="Document Preview" />
                      )
                    ) : (
                      <div className="text-center z-10">
                        <FileText className="w-16 h-16 text-muted-foreground/20 mx-auto mb-4 animate-pulse" />
-                       <p className="text-muted-foreground font-medium small uppercase tracking-tighter">
-                         Loading Document Preview...
+                       <p className="text-muted-foreground font-bold text-xs uppercase tracking-widest">
+                         Loading Preview...
                        </p>
                      </div>
                    )}
@@ -208,13 +208,13 @@ export default function HitlQueue() {
                </div>
 
                {/* Right side: OCR Correction */}
-               <div className="flex-1 flex flex-col p-6">
-                 <div className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-4 flex justify-between">
+               <div className="flex-1 flex flex-col p-6 bg-background/30">
+                 <div className="text-[11px] uppercase tracking-widest text-muted-foreground font-bold mb-4 flex justify-between">
                    <span>Extracted OCR Text</span>
-                   <span>Verify key fields before AI structuring</span>
+                   <span className="text-primary">Verify key fields before AI structuring</span>
                  </div>
                  <textarea 
-                   className="flex-1 w-full p-6 rounded-xl border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20 font-mono text-[13px] leading-relaxed resize-none shadow-sm text-foreground"
+                   className="flex-1 w-full p-6 rounded-2xl border border-border/50 bg-card/50 focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono text-[13px] leading-relaxed resize-none shadow-inner text-foreground transition-all"
                    value={editedText}
                    onChange={(e) => setEditedText(e.target.value)}
                    spellCheck={false}

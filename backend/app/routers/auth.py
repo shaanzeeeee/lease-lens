@@ -49,9 +49,9 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             detail="Email already registered",
         )
 
-    # Create or find tenant
-    tenant_name = request.tenant_name or "Default Organization"
-    slug = tenant_name.lower().replace(" ", "-").replace("_", "-")
+    # Create or find default tenant
+    tenant_name = "Abelam Default"
+    slug = "abelam-default"
 
     result = await db.execute(select(Tenant).where(Tenant.slug == slug))
     tenant = result.scalar_one_or_none()

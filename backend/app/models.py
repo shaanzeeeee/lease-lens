@@ -146,6 +146,7 @@ class Document(Base):
     file_size = Column(Integer)  # bytes
     category = Column(String(50), default=DocumentCategory.OTHER.value, index=True)
     subcategory = Column(String(100))  # e.g., "School_Tax", "Hydro_&_Energir", "Municipal_Tax"
+    relative_path = Column(Text, nullable=True)  # Store full path for deep folder navigation
     ocr_text = Column(Text, default="")
     ocr_confidence = Column(Float, default=0.0)
     ocr_blocks = Column(JSON, default=list)

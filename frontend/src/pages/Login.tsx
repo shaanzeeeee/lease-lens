@@ -8,8 +8,9 @@ import { apiClient } from '../api/client';
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('admin@abelam.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -19,6 +20,18 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!isLogin) {
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters long');
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     try {
@@ -53,11 +66,13 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
-      {/* Premium ambient gradient blobs */}
-      <div className="absolute top-[-30%] left-[-15%] w-[600px] h-[600px] rounded-full bg-primary/15 blur-[140px] animate-float" />
-      <div className="absolute bottom-[-25%] right-[-10%] w-[500px] h-[500px] rounded-full bg-blue-500/10 blur-[160px]" />
-      <div className="absolute top-[40%] right-[15%] w-[300px] h-[300px] rounded-full bg-primary/5 blur-[100px]" />
+    <div className="min-h-screen flex bg-background">
+      {/* Left Form Section */}
+      <div className="w-full lg:w-[50%] flex items-center justify-center p-8 relative z-10">
+        {/* Subtle ambient light for form side */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
+          <div className="absolute top-[-20%] left-[-20%] w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px]" />
+        </div>
       
       <motion.div 
         initial={{ opacity: 0, y: 24 }}
@@ -139,6 +154,22 @@ export default function Login() {
               />
             </div>
 
+            {!isLogin && (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-muted-foreground" /> Confirm Password
+                </label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required={!isLogin}
+                  className="bg-background/50 h-11"
+                />
+              </div>
+            )}
+
             <Button type="submit" className="w-full mt-6 h-12 text-base font-bold shadow-lg shadow-primary/20" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -165,6 +196,47 @@ export default function Login() {
           Secured by Abelam AI · Enterprise Grade
         </p>
       </motion.div>
+      </div>
+
+      {/* Right Visual Section */}
+      <div className="hidden lg:flex w-[50%] relative overflow-hidden items-center justify-center border-l border-border/50 bg-muted/10">
+        <div className="absolute top-[-10%] right-[-10%] w-[800px] h-[800px] rounded-full bg-primary/20 blur-[140px] animate-pulse-glow" />
+        <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-blue-500/15 blur-[160px]" />
+        
+        {/* Abstract Floating UI Elements */}
+        <div className="relative z-10 w-full max-w-lg p-12 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.8 }}
+            className="glass-panel p-8 rounded-3xl border border-primary/20 shadow-2xl bg-card/40 backdrop-blur-3xl"
+          >
+            <div className="grid grid-cols-2 gap-4 opacity-80">
+              <div className="h-24 rounded-2xl bg-gradient-to-br from-primary/20 to-transparent border border-primary/10" />
+              <div className="h-24 rounded-2xl bg-gradient-to-bl from-blue-500/20 to-transparent border border-blue-500/10" />
+              <div className="col-span-2 h-32 rounded-2xl bg-gradient-to-tr from-muted/50 to-transparent border border-border/50 flex items-center justify-center">
+                <div className="h-2 w-1/2 bg-muted rounded-full" />
+              </div>
+            </div>
+          </motion.div>
+          <motion.h2 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6, duration: 0.8 }}
+            className="text-3xl font-bold mt-12 text-foreground tracking-tight"
+          >
+            Smarter Real Estate Underwriting
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8, duration: 0.8 }}
+            className="text-muted-foreground mt-4 leading-relaxed"
+          >
+            Automate document extraction, calculate NOIs, and accelerate your deal flow with our LangGraph-powered AI pipeline.
+          </motion.p>
+        </div>
+      </div>
     </div>
   );
 }

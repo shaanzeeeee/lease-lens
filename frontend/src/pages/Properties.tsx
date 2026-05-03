@@ -93,11 +93,11 @@ export default function Properties() {
       <div className="flex flex-wrap items-center justify-between gap-4 py-2">
         <div className="relative flex-1 min-w-[300px]">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input 
-            type="text" 
-            placeholder="Search assets by name, address, or city..." 
-            className="w-full pl-10 pr-4 py-3 bg-muted/30 border border-border/50 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
-          />
+            <input 
+              type="text" 
+              placeholder="Search assets by name, address, or city..." 
+              className="w-full pl-10 pr-4 py-3 bg-muted/30 border border-border/50 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none shadow-sm focus:shadow-md"
+            />
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-muted/30 p-1 rounded-xl border border-border/50">
@@ -159,10 +159,10 @@ export default function Properties() {
                   className="h-full group relative"
                 >
                   <Card 
-                    className="h-full flex flex-col border-border/40 hover:border-primary/40 bg-card/40 backdrop-blur-md transition-all duration-500 hover:shadow-2xl hover:shadow-primary/5 cursor-pointer overflow-hidden"
+                    className="h-full flex flex-col border-border/40 hover:border-primary/40 bg-card/60 backdrop-blur-xl transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-1 cursor-pointer overflow-hidden"
                     onClick={() => navigate(`/properties/${property.id}`)}
                   >
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                     
                     <div className="aspect-[16/9] bg-muted/20 relative overflow-hidden flex items-center justify-center group-hover:bg-muted/30 transition-colors">
                       <Building2 className="w-16 h-16 text-muted-foreground/20 group-hover:text-primary/20 transition-all duration-700 group-hover:scale-110" />
@@ -235,9 +235,9 @@ export default function Properties() {
             exit={{ opacity: 0 }}
             className="border border-border/50 rounded-2xl overflow-hidden bg-card/40 backdrop-blur-md shadow-xl"
           >
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-muted/20 border-b border-border/50">
+            <table className="w-full text-left border-collapse relative">
+              <thead className="sticky top-0 backdrop-blur-md z-10 shadow-sm bg-muted/40">
+                <tr className="border-b border-border/50">
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-muted-foreground">Property Asset</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-muted-foreground">Location</th>
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-muted-foreground text-center">Units</th>
@@ -249,7 +249,7 @@ export default function Properties() {
                 {properties.map((property) => (
                   <tr 
                     key={property.id} 
-                    className="hover:bg-primary/5 transition-colors group cursor-pointer"
+                    className="even:bg-muted/10 hover:bg-primary/10 transition-colors group cursor-pointer border-l-2 border-transparent hover:border-primary"
                     onClick={() => navigate(`/properties/${property.id}`)}
                   >
                     <td className="px-6 py-4">

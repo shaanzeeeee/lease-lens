@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { cn } from './components';
+import { cn, Button } from './components';
 import { apiClient } from '../../api/client';
 
 interface DropzoneProps {
@@ -50,6 +50,9 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
         }
         if (fileSubcategory) {
           data.append('subcategory', fileSubcategory);
+        }
+        if (path) {
+          data.append('relative_path', path);
         }
         
         await apiClient.post('/documents/upload', data, {

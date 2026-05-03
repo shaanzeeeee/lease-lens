@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Button, Skeleton } from '../components/ui/components';
 import { apiClient } from '../api/client';
-import { Building2, Home, Activity, TrendingUp, Plus, ArrowRight, MessageSquare } from 'lucide-react';
+import { Building2, Home, Activity, TrendingUp, Plus, ArrowRight, MessageSquare, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { ResponsiveContainer, LineChart, Line } from 'recharts';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
@@ -24,11 +25,16 @@ export default function Dashboard() {
     fetchDashboard();
   }, []);
 
+  const sparklineData1 = [{ v: 30 }, { v: 40 }, { v: 35 }, { v: 50 }, { v: 49 }, { v: 60 }, { v: 70 }, { v: 91 }];
+  const sparklineData2 = [{ v: 20 }, { v: 25 }, { v: 35 }, { v: 30 }, { v: 45 }, { v: 55 }, { v: 65 }, { v: 80 }];
+  const sparklineData3 = [{ v: 80 }, { v: 70 }, { v: 60 }, { v: 75 }, { v: 65 }, { v: 55 }, { v: 40 }, { v: 50 }];
+  const sparklineData4 = [{ v: 10 }, { v: 15 }, { v: 12 }, { v: 20 }, { v: 18 }, { v: 25 }, { v: 30 }, { v: 35 }];
+
   const statCards = [
-    { title: 'Total Properties', value: stats?.total_properties || 0, icon: Building2, trend: 'Portfolio Overview', color: 'primary' },
-    { title: 'Portfolio Docs', value: stats?.total_documents || 0, icon: TrendingUp, trend: 'Document Store', color: 'blue-500' },
-    { title: 'Active Deals', value: stats?.active_deals || 0, icon: Activity, trend: 'Current Pipeline', color: 'green-500' },
-    { title: 'Pending Review', value: stats?.pending_verification || 0, icon: Home, trend: 'HITL Queue', color: 'orange-500' }
+    { title: 'Total Properties', value: stats?.total_properties || 0, icon: Building2, trend: '+12.5%', trendIcon: ArrowUpRight, trendColor: 'text-emerald-500', data: sparklineData1 },
+    { title: 'Portfolio Docs', value: stats?.total_documents || 0, icon: TrendingUp, trend: '+8.2%', trendIcon: ArrowUpRight, trendColor: 'text-emerald-500', data: sparklineData2 },
+    { title: 'Active Deals', value: stats?.active_deals || 0, icon: Activity, trend: '-2.4%', trendIcon: ArrowDownRight, trendColor: 'text-rose-500', data: sparklineData3 },
+    { title: 'Pending Review', value: stats?.pending_verification || 0, icon: Home, trend: '+18.1%', trendIcon: ArrowUpRight, trendColor: 'text-emerald-500', data: sparklineData4 }
   ];
 
   return (
@@ -75,8 +81,21 @@ export default function Dashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-extrabold tracking-tight">{stat.value}</div>
-                  <p className="text-xs text-muted-foreground mt-1.5 font-semibold">{stat.trend}</p>
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <div className="text-3xl font-extrabold tracking-tight">{stat.value}</div>
+                      <p className={`text-xs mt-1.5 font-bold flex items-center gap-0.5 ${stat.trendColor}`}>
+                        <stat.trendIcon className="w-3 h-3" /> {stat.trend} <span className="text-muted-foreground font-medium ml-1">vs last mo</span>
+                      </p>
+                    </div>
+                    <div className="h-10 w-20">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={stat.data}>
+                          <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>

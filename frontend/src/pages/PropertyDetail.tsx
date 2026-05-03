@@ -8,11 +8,14 @@ import {
   Search, ExternalLink, Calculator,
   TrendingUp, Wallet, ArrowUpRight,
   Filter, LayoutGrid, List, Trash2, Loader2, MessageSquare, Send, X, Image,
-  Folder, ChevronRight, Download, FileSpreadsheet
+  Folder, ChevronRight, ChevronLeft, Download, FileSpreadsheet,
+  Edit3, Check, X as CloseIcon
 } from 'lucide-react';
 import { Dropzone } from '../components/ui/Dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const formatLabel = (str: string) => {
   if (!str) return '';
@@ -52,6 +55,9 @@ export default function PropertyDetail() {
   const [deals, setDeals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 9;
   const [selectedFileUrl, setSelectedFileUrl] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<any>(null);
@@ -88,6 +94,14 @@ export default function PropertyDetail() {
   const [apartmentsLoading, setApartmentsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Rename/Delete States
+  const [renamingDocId, setRenamingDocId] = useState<number | null>(null);
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | string | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+
   const loadChatHistory = async () => {
     try {
       const res = await apiClient.get(`/chat/history?property_id=${id}&page_size=10`);
@@ -112,13 +126,14 @@ export default function PropertyDetail() {
         
         // Fetch others in parallel but handle errors individually
         const [docsRes, dealsRes, apartmentsRes] = await Promise.allSettled([
-          apiClient.get(`/documents/?property_id=${id}`),
+          apiClient.get(`/documents/?property_id=${id}&page_size=1000`),
           apiClient.get(`/deals/?property_id=${id}`),
           apiClient.get(`/properties/${id}/apartments`)
         ]);
         
         if (docsRes.status === 'fulfilled') {
           setDocuments(docsRes.value.data.items);
+          // totalPages will be handled client-side for Explorer
         } else {
           console.error('Failed to fetch documents', docsRes.reason);
         }
@@ -212,7 +227,7 @@ export default function PropertyDetail() {
     return () => {
       ws.close();
     };
-  }, [id]);
+  }, [id]); // No longer depends on currentPage as it's client-side
 
   useEffect(() => {
     if (isCopilotOpen && id) {
@@ -298,14 +313,128 @@ export default function PropertyDetail() {
   };
 
   const handleDeleteDocument = async (docId: number) => {
-    if (!window.confirm('Are you sure you want to delete this document?')) return;
-    
+    console.log(`[DELETE] Attempting to delete document: ${docId}`);
+    setIsActionLoading(true);
     try {
       await apiClient.delete(`/documents/${docId}`);
+      console.log(`[DELETE] Successfully deleted document: ${docId}`);
       setDocuments(prev => prev.filter(d => d.id !== docId));
+      setDeletingId(null);
     } catch (err) {
-      console.error('Failed to delete document', err);
+      console.error('[DELETE] Failed to delete document', err);
       alert('Failed to delete document');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleRenameFile = async (docId: number) => {
+    if (!renameValue.trim()) return;
+    setIsRenaming(true);
+    try {
+      await apiClient.patch(`/documents/${docId}`, { original_filename: renameValue.trim() });
+      setDocuments(prev => prev.map(d => d.id === docId ? { ...d, original_filename: renameValue.trim() } : d));
+      setRenamingDocId(null);
+      setRenameValue('');
+    } catch (err) {
+      console.error('Failed to rename file', err);
+      alert('Failed to rename file');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleRenameFolder = async (oldName: string) => {
+    if (!renameValue.trim()) return;
+    setIsRenaming(true);
+    const oldPath = [...currentPath, oldName].join('/');
+    const newPath = [...currentPath, renameValue.trim()].join('/');
+    
+    console.log(`[RENAME] Folder from "${oldPath}" to "${newPath}"`, {
+      property_id: Number(id),
+      old_path: oldPath,
+      new_path: newPath
+    });
+    
+    try {
+      await apiClient.post('/documents/folders/rename', {
+        property_id: Number(id),
+        old_path: oldPath,
+        new_path: newPath
+      });
+      
+      // Update all documents that were in or under this folder
+      setDocuments(prev => prev.map(doc => {
+        const partsOld = oldPath.split('/');
+        const catOld = partsOld[0];
+        const subcatOld = partsOld[1];
+        const partsNew = newPath.split('/');
+        const catNew = partsNew[0];
+        const subcatNew = partsNew[1];
+
+        if (doc.relative_path) {
+          const docPath = doc.relative_path;
+          if (docPath === oldPath) {
+            return { ...doc, relative_path: newPath };
+          }
+          if (docPath.startsWith(oldPath + '/')) {
+            return { ...doc, relative_path: docPath.replace(oldPath + '/', newPath + '/') };
+          }
+        } else {
+          // Virtual folder match
+          if (partsOld.length === 1 && doc.category === catOld) {
+            return { ...doc, category: catNew };
+          }
+          if (partsOld.length === 2 && doc.category === catOld && doc.subcategory === subcatOld) {
+            return { ...doc, category: catNew, subcategory: subcatNew };
+          }
+        }
+        return doc;
+      }));
+      
+      setRenamingFolder(null);
+      setRenameValue('');
+    } catch (err) {
+      console.error('Failed to rename folder', err);
+      alert('Failed to rename folder');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folderName: string) => {
+    const fullPath = [...currentPath, folderName].join('/');
+    console.log(`[DELETE] Attempting to delete folder: ${fullPath}`);
+    setIsActionLoading(true);
+    try {
+      await apiClient.post('/documents/folders/delete', {
+        property_id: Number(id),
+        path: fullPath
+      });
+      console.log(`[DELETE] Successfully deleted folder: ${fullPath}`);
+      
+      // Remove all documents that were in or under this folder
+      setDocuments(prev => prev.filter(doc => {
+        const parts = fullPath.split('/');
+        const cat = parts[0];
+        const subcat = parts[1];
+
+        if (doc.relative_path) {
+          const docPath = doc.relative_path;
+          return docPath !== fullPath && !docPath.startsWith(fullPath + '/');
+        } else {
+          // Virtual folder check
+          if (parts.length === 1 && doc.category === cat) return false;
+          if (parts.length === 2 && doc.category === cat && doc.subcategory === subcat) return false;
+        }
+        return true;
+      }));
+      setDeletingId(null);
+    } catch (err) {
+      console.error('[DELETE] Failed to delete folder', err);
+      alert('Failed to delete folder');
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
@@ -429,28 +558,71 @@ export default function PropertyDetail() {
 
   const nonPhotoDocs = documents.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
   
-  let currentFolders: string[] = [];
-  let currentFiles: any[] = [];
 
-  if (activeTab === 'Explorer') {
+  const getExplorerItems = () => {
+    if (activeTab !== 'Explorer') return { folders: [], files: [] };
+    
     if (searchQuery.trim().length > 1) {
-      currentFolders = [];
-      currentFiles = searchResults.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
-    } else {
-      if (currentPath.length === 0) {
-        currentFolders = Array.from(new Set(nonPhotoDocs.filter(d => d.category && d.category !== 'Uncategorized').map(d => d.category)));
-        currentFiles = nonPhotoDocs.filter(d => !d.category || d.category === 'Uncategorized');
-      } else if (currentPath.length === 1) {
-        const cat = currentPath[0];
-        currentFolders = Array.from(new Set(nonPhotoDocs.filter(d => d.category === cat && d.subcategory).map(d => d.subcategory)));
-        currentFiles = nonPhotoDocs.filter(d => d.category === cat && !d.subcategory);
-      } else if (currentPath.length >= 2) {
-        const cat = currentPath[0];
-        const subcat = currentPath[1];
-        currentFiles = nonPhotoDocs.filter(d => d.category === cat && d.subcategory === subcat);
-      }
+      return {
+        folders: [],
+        files: searchResults.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')))
+      };
     }
-  }
+
+    // Filter documents by the current path
+    const filteredDocs = nonPhotoDocs.filter(doc => {
+      const docPath = doc.relative_path 
+        ? doc.relative_path.split('/').filter(Boolean) 
+        : [doc.category, doc.subcategory].filter(Boolean);
+      
+      if (currentPath.length > docPath.length) return false;
+      for (let i = 0; i < currentPath.length; i++) {
+        // Case-insensitive comparison for robustness
+        if (currentPath[i].toLowerCase() !== docPath[i].toLowerCase()) return false;
+      }
+      return true;
+    });
+
+    const folders = new Set<string>();
+    const files: any[] = [];
+
+    filteredDocs.forEach(doc => {
+      // For relative_path, the parts include the filename at the end.
+      // For category/subcategory, they are just folder names.
+      const docPath = doc.relative_path 
+        ? doc.relative_path.split('/').filter(Boolean) 
+        : [doc.category, doc.subcategory].filter(Boolean);
+      
+      const isDeep = doc.relative_path 
+        ? docPath.length > currentPath.length + 1 // If there's at least one more folder before the filename
+        : docPath.length > currentPath.length;    // For category/subcategory, anything deeper is a folder
+      
+      if (isDeep) {
+        folders.add(docPath[currentPath.length]);
+      } else if (doc.relative_path && docPath.length === currentPath.length + 1) {
+        // It's a file at this level (the last part is the filename)
+        files.push(doc);
+      } else if (!doc.relative_path && docPath.length === currentPath.length) {
+        // It's a file at this level (no more subfolders/subcategories)
+        files.push(doc);
+      }
+    });
+
+    return {
+      folders: Array.from(folders).sort(),
+      files
+    };
+  };
+
+  const { folders: currentFolders, files: currentFiles } = getExplorerItems();
+
+  // Client-side pagination logic for Explorer
+  const combinedExplorerItems = [...currentFolders.map(f => ({ isFolder: true, name: f })), ...currentFiles.map(f => ({ ...f, isFolder: false }))];
+  const explorerTotalPages = Math.ceil(combinedExplorerItems.length / pageSize) || 1;
+  const explorerPageItems = combinedExplorerItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  
+  const displayedFolders = explorerPageItems.filter(i => i.isFolder).map(i => i.name);
+  const displayedFiles = explorerPageItems.filter(i => !i.isFolder);
 
   const photoDocuments = documents.filter(doc => 
     doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')
@@ -503,15 +675,15 @@ export default function PropertyDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50" onClick={() => window.history.back()}>
+          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50 active:scale-95 transition-all" onClick={() => window.history.back()}>
             Back to Portfolio
           </Button>
-          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50" onClick={handleFetchSummary}>
+          <Button variant="outline" className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50 active:scale-95 transition-all" onClick={handleFetchSummary}>
             <LayoutGrid className="w-4 h-4 mr-2" /> Overview
           </Button>
           <Button
             variant="outline"
-            className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50 hover:text-primary transition-all"
+            className="h-11 px-5 border-border/50 font-bold hover:bg-muted/50 hover:text-primary active:scale-95 transition-all"
             onClick={handleExportZip}
             disabled={isExporting}
             title="Download all documents as ZIP"
@@ -534,7 +706,7 @@ export default function PropertyDetail() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: i * 0.1 }}
           >
-            <Card className="border-border/40 bg-card/40 backdrop-blur-md hover:border-primary/30 transition-all overflow-hidden group">
+            <Card className="border-border/40 bg-card/40 backdrop-blur-md hover:border-primary/50 hover:-translate-y-1 hover:shadow-xl shadow-primary/5 transition-all duration-300 overflow-hidden group cursor-default">
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
                   <div className="p-2.5 rounded-xl bg-muted/50 group-hover:bg-primary/10 transition-colors">
@@ -601,7 +773,7 @@ export default function PropertyDetail() {
               {['Explorer', 'Rent Roll'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => { setActiveTab(tab); if (tab === 'Explorer') setCurrentPath([]); }}
+                  onClick={() => { setActiveTab(tab); if (tab === 'Explorer') { setCurrentPath([]); setCurrentPage(1); } }}
                   className={`px-4 py-3 text-xs font-bold uppercase tracking-widest whitespace-nowrap border-b-2 transition-colors ${
                     activeTab === tab 
                       ? 'border-primary text-primary' 
@@ -615,7 +787,7 @@ export default function PropertyDetail() {
             {activeTab === 'Explorer' && !searchQuery && (
               <div className="flex items-center gap-3 px-8 py-4 bg-muted/10 border-b border-border/50 text-sm font-bold overflow-x-auto no-scrollbar shadow-inner">
                 <button 
-                  onClick={() => setCurrentPath([])} 
+                  onClick={() => { setCurrentPath([]); setCurrentPage(1); }} 
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${
                     currentPath.length === 0 
                       ? 'bg-primary/10 text-primary border border-primary/20' 
@@ -629,7 +801,7 @@ export default function PropertyDetail() {
                   <React.Fragment key={`${folder}-${idx}`}>
                     <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
                     <button 
-                      onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
+                      onClick={() => { setCurrentPath(currentPath.slice(0, idx + 1)); setCurrentPage(1); }}
                       className={`px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
                         idx === currentPath.length - 1
                           ? 'bg-primary/10 text-primary border border-primary/20'
@@ -652,8 +824,8 @@ export default function PropertyDetail() {
                     exit={{ opacity: 0 }}
                     className="overflow-x-auto p-4"
                   >
-                    <table className="w-full text-sm text-left border-collapse">
-                      <thead className="bg-muted/20 text-[10px] uppercase tracking-widest font-black text-muted-foreground">
+                    <table className="w-full text-sm text-left border-collapse relative">
+                      <thead className="bg-muted/40 text-[10px] uppercase tracking-widest font-black text-muted-foreground sticky top-0 backdrop-blur-md z-10 shadow-sm">
                         <tr>
                           <th className="px-4 py-3">Unit</th>
                           <th className="px-4 py-3">Tenant</th>
@@ -670,15 +842,15 @@ export default function PropertyDetail() {
                             const marketRent = row.monthly_rent ? row.monthly_rent * 1.1 : 0; // Derived market rent (mocked for now)
                             const isBelowMarket = row.monthly_rent < marketRent && row.monthly_rent > 0;
                             return (
-                              <tr key={row.id} className="hover:bg-primary/5 transition-colors">
+                              <tr key={row.id} className="even:bg-muted/20 hover:bg-primary/10 transition-colors border-l-2 border-transparent hover:border-primary">
                                 <td className="px-4 py-3 font-bold">{row.unit_number}</td>
                                 <td className="px-4 py-3 text-muted-foreground">{row.tenant_name || 'Vacant'}</td>
                                 <td className="px-4 py-3 text-muted-foreground">{row.lease_start ? new Date(row.lease_start).toLocaleDateString() : '-'}</td>
                                 <td className="px-4 py-3 font-bold">{row.lease_end ? new Date(row.lease_end).toLocaleDateString() : '-'}</td>
-                                <td className={`px-4 py-3 text-right font-bold ${isBelowMarket ? 'text-orange-500' : ''}`}>
+                                <td className={`px-4 py-3 text-right font-bold tabular-nums font-mono ${isBelowMarket ? 'text-orange-500' : ''}`}>
                                   ${row.monthly_rent?.toLocaleString() || '0'}
                                 </td>
-                                <td className="px-4 py-3 text-right text-muted-foreground">
+                                <td className="px-4 py-3 text-right text-muted-foreground tabular-nums font-mono">
                                   ${marketRent.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                 </td>
                                 <td className="px-4 py-3 text-center">
@@ -721,37 +893,115 @@ export default function PropertyDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/30">
-                        {currentFolders.length > 0 || currentFiles.length > 0 ? (
+                        {displayedFolders.length > 0 || displayedFiles.length > 0 ? (
                           <>
-                            {currentFolders.map(folder => (
-                              <tr key={folder} className="hover:bg-primary/5 transition-colors group cursor-pointer" onClick={() => setCurrentPath([...currentPath, folder])}>
+                            {displayedFolders.map((folder) => (
+                              <tr key={folder} className="hover:bg-primary/10 transition-colors group cursor-pointer border-l-2 border-transparent hover:border-primary" onClick={() => { if (!renamingFolder) { setCurrentPath([...currentPath, folder]); setCurrentPage(1); } }}>
                                 <td className="px-8 py-5">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                                    <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
                                       <Folder className="w-5 h-5 text-primary" />
                                     </div>
-                                    <div>
+                                    {renamingFolder === folder ? (
+                                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          className="bg-background border border-primary/50 rounded px-2 py-1 text-sm font-bold w-48 focus:outline-none ring-1 ring-primary/20"
+                                          value={renameValue}
+                                          onChange={(e) => setRenameValue(e.target.value)}
+                                          autoFocus
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleRenameFolder(folder);
+                                            if (e.key === 'Escape') setRenamingFolder(null);
+                                          }}
+                                        />
+                                        <Button size="sm" className="h-8 w-8 p-0" onClick={() => handleRenameFolder(folder)} disabled={isRenaming}>
+                                          {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-4 h-4" />}
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setRenamingFolder(null)}>
+                                          <CloseIcon className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    ) : (
                                       <div className="font-bold text-foreground">{formatLabel(folder)}</div>
-                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">Directory</div>
-                                    </div>
+                                    )}
                                   </div>
                                 </td>
-                                <td className="px-8 py-5"></td>
-                                <td className="px-8 py-5"></td>
+                                <td className="px-8 py-5">
+                                  <div className="flex items-center gap-2 text-muted-foreground italic text-[10px] font-medium uppercase tracking-tight">
+                                    <Folder className="w-3 h-3" />
+                                    <span>Sub-Folder Set</span>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-5">
+                                  <Badge variant="outline" className="text-[10px] uppercase font-bold text-muted-foreground border-border/50">Structure</Badge>
+                                </td>
                                 <td className="px-8 py-5 text-right">
-                                  <ChevronRight className="w-4 h-4 text-muted-foreground inline-block opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <div className="flex items-center justify-end gap-2">
+                                    {deletingId === folder ? (
+                                      <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-1" onClick={(e) => e.stopPropagation()}>
+                                        <Button 
+                                          variant="destructive" 
+                                          size="sm" 
+                                          className="h-7 px-2 text-[10px] font-black uppercase"
+                                          disabled={isActionLoading}
+                                          onClick={() => handleDeleteFolder(folder)}
+                                        >
+                                          {isActionLoading ? "..." : "Delete"}
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="h-7 px-2 text-[10px] font-black uppercase"
+                                          onClick={() => setDeletingId(null)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        {!renamingFolder && (
+                                          <>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="icon" 
+                                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setRenamingFolder(folder);
+                                                setRenameValue(folder);
+                                              }}
+                                            >
+                                              <Edit3 className="w-4 h-4" />
+                                            </Button>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="icon" 
+                                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setDeletingId(folder);
+                                              }}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </>
+                                        )}
+                                        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                                      </>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             ))}
-                            {currentFiles.length === 0 && currentFolders.length === 0 && searchQuery && !isSearching && (
+                            {displayedFiles.length === 0 && displayedFolders.length === 0 && searchQuery && !isSearching && (
                               <tr>
                                 <td colSpan={4} className="px-8 py-12 text-center text-muted-foreground">
                                   No documents found matching "{searchQuery}". Try a different keyword.
                                 </td>
                               </tr>
                             )}
-                            {currentFiles.map((doc) => (
-                              <tr key={doc.id} className="hover:bg-primary/5 transition-colors group cursor-pointer">
+                            {displayedFiles.map((doc) => (
+                              <tr key={doc.id} className="hover:bg-primary/10 transition-colors group cursor-pointer border-l-2 border-transparent hover:border-primary">
                                 <td className="px-8 py-5">
                                   <div className="flex items-center gap-3">
                                     <div 
@@ -765,10 +1015,33 @@ export default function PropertyDetail() {
                                       )}
                                     </div>
                                     <div>
-                                      <div className="font-bold text-foreground">{doc.original_filename}</div>
-                                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
-                                        {formatLabel(doc.category) || 'Root'} • {Math.round(doc.file_size / 1024)} KB
-                                      </div>
+                                      {renamingDocId === doc.id ? (
+                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                          <input
+                                            className="bg-background border border-primary/50 rounded px-2 py-1 text-sm font-bold w-48 focus:outline-none ring-1 ring-primary/20"
+                                            value={renameValue}
+                                            onChange={(e) => setRenameValue(e.target.value)}
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') handleRenameFile(doc.id);
+                                              if (e.key === 'Escape') setRenamingDocId(null);
+                                            }}
+                                          />
+                                          <Button size="sm" className="h-8 w-8 p-0" onClick={() => handleRenameFile(doc.id)} disabled={isRenaming}>
+                                            {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-4 h-4" />}
+                                          </Button>
+                                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => setRenamingDocId(null)}>
+                                            <CloseIcon className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="font-bold text-foreground">{doc.original_filename}</div>
+                                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
+                                            {formatLabel(doc.category) || 'Root'} • {Math.round(doc.file_size / 1024)} KB
+                                          </div>
+                                        </>
+                                      )}
                                       {doc.status === 'failed' && doc.error_message && (
                                         <div className="text-[10px] text-destructive font-medium mt-1 max-w-[200px] truncate" title={doc.error_message}>
                                           Error: {doc.error_message}
@@ -799,10 +1072,24 @@ export default function PropertyDetail() {
                                 </td>
                                 <td className="px-8 py-5 text-right">
                                   <div className="flex items-center justify-end gap-2">
+                                    {!renamingDocId && (
+                                      <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setRenamingDocId(doc.id);
+                                          setRenameValue(doc.original_filename);
+                                        }}
+                                      >
+                                        <Edit3 className="w-4 h-4" />
+                                      </Button>
+                                    )}
                                     <Button 
                                       variant={doc.status === 'needs_review' ? 'destructive' : 'outline'} 
                                       size="sm" 
-                                      className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all disabled:opacity-50"
+                                      className="h-8 border-border/50 text-[10px] font-bold uppercase tracking-widest hover:bg-primary hover:text-white transition-all active:scale-95 disabled:opacity-50"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         if (doc.status === 'needs_review') {
@@ -825,14 +1112,36 @@ export default function PropertyDetail() {
                                         <>Verify <ExternalLink className="w-3 h-3 ml-1.5" /></>
                                       )}
                                     </Button>
-                                    <Button 
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-8 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all"
-                                      onClick={() => handleDeleteDocument(doc.id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    {deletingId === doc.id ? (
+                                      <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-1" onClick={(e) => e.stopPropagation()}>
+                                        <Button 
+                                          variant="destructive" 
+                                          size="sm" 
+                                          className="h-8 px-3 text-[10px] font-black uppercase"
+                                          disabled={isActionLoading}
+                                          onClick={() => handleDeleteDocument(doc.id)}
+                                        >
+                                          {isActionLoading ? "..." : "Delete"}
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="h-8 px-3 text-[10px] font-black uppercase"
+                                          onClick={() => setDeletingId(null)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button 
+                                        variant="outline" 
+                                        size="icon" 
+                                        className="h-8 w-8 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all active:scale-95 opacity-0 group-hover:opacity-100"
+                                        onClick={(e) => { e.stopPropagation(); setDeletingId(doc.id); }}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -856,10 +1165,10 @@ export default function PropertyDetail() {
                     exit={{ opacity: 0 }}
                     className="p-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6"
                   >
-                    {currentFolders.length > 0 || currentFiles.length > 0 ? (
+                    {displayedFolders.length > 0 || displayedFiles.length > 0 ? (
                       <>
-                        {currentFolders.map(folder => (
-                          <Card key={folder} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden cursor-pointer" onClick={() => setCurrentPath([...currentPath, folder])}>
+                        {displayedFolders.map(folder => (
+                          <Card key={folder} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden cursor-pointer" onClick={() => { setCurrentPath([...currentPath, folder]); setCurrentPage(1); }}>
                             <CardContent className="p-6">
                               <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-sm">
                                 <Folder className="w-6 h-6 text-primary" />
@@ -871,7 +1180,7 @@ export default function PropertyDetail() {
                             </CardContent>
                           </Card>
                         ))}
-                        {currentFiles.map((doc) => (
+                        {displayedFiles.map((doc) => (
                           <Card key={doc.id} className="bg-muted/20 border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-3">
                               <Badge variant="success" className="text-[8px] px-1.5 h-4">Verified</Badge>
@@ -890,19 +1199,41 @@ export default function PropertyDetail() {
                                   <Button 
                                     variant="ghost" 
                                     size="sm" 
-                                    className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0"
+                                    className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-primary p-0 active:scale-95 transition-transform"
                                     onClick={() => handleViewDocument(doc, doc.status === 'needs_review')}
                                   >
                                     View <ExternalLink className="w-3 h-3 ml-1" />
                                   </Button>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-destructive p-0"
-                                    onClick={() => handleDeleteDocument(doc.id)}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </Button>
+                                    {deletingId === doc.id ? (
+                                      <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-1">
+                                        <Button 
+                                          variant="destructive" 
+                                          size="sm" 
+                                          className="h-7 px-2 text-[10px] font-black uppercase"
+                                          disabled={isActionLoading}
+                                          onClick={() => handleDeleteDocument(doc.id)}
+                                        >
+                                          {isActionLoading ? "..." : "Delete"}
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="h-7 px-2 text-[10px] font-black uppercase"
+                                          onClick={() => setDeletingId(null)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-7 text-[10px] font-black uppercase tracking-widest hover:text-destructive p-0"
+                                        onClick={() => setDeletingId(doc.id)}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </Button>
+                                    )}
                                 </div>
                               </div>
                             </CardContent>
@@ -917,6 +1248,60 @@ export default function PropertyDetail() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {activeTab === 'Explorer' && explorerTotalPages > 1 && (
+                <div className="px-8 py-4 border-t border-border/50 flex items-center justify-between bg-muted/5">
+                  <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                    Showing page <span className="text-primary">{currentPage}</span> of <span className="text-primary">{explorerTotalPages}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-8 w-8 p-0 border-border/50 hover:bg-primary/10 transition-colors"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: explorerTotalPages }).map((_, i) => {
+                        const pageNum = i + 1;
+                        // Only show first 3, last 1, and current if it's in the middle
+                        const shouldShow = pageNum === 1 || pageNum === explorerTotalPages || (pageNum >= currentPage - 1 && pageNum <= currentPage + 1);
+                        
+                        if (!shouldShow) {
+                          if (pageNum === 2 || pageNum === explorerTotalPages - 1) {
+                            return <span key={i} className="text-muted-foreground text-[10px] px-1">...</span>;
+                          }
+                          return null;
+                        }
+
+                        return (
+                          <Button
+                            key={i}
+                            variant={currentPage === pageNum ? "default" : "ghost"}
+                            size="sm"
+                            className="h-8 w-8 p-0 text-[10px] font-black"
+                            onClick={() => setCurrentPage(pageNum)}
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-8 w-8 p-0 border-border/50 hover:bg-primary/10 transition-colors"
+                      onClick={() => setCurrentPage(prev => Math.min(explorerTotalPages, prev + 1))}
+                      disabled={currentPage === explorerTotalPages}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -948,7 +1333,7 @@ export default function PropertyDetail() {
                           <Button 
                             variant="secondary" 
                             size="sm" 
-                            className="h-7 text-[10px] w-full"
+                            className="h-7 text-[10px] w-full active:scale-95 transition-transform"
                             onClick={() => handleViewDocument(doc)}
                           >
                             <ExternalLink className="w-3 h-3 mr-1" /> View
@@ -956,7 +1341,7 @@ export default function PropertyDetail() {
                           <Button 
                             variant="destructive" 
                             size="sm" 
-                            className="h-7 w-7 p-0"
+                            className="h-7 w-7 p-0 active:scale-95 transition-transform"
                             onClick={() => handleDeleteDocument(doc.id)}
                           >
                             <Trash2 className="w-3 h-3" />
@@ -1292,7 +1677,7 @@ export default function PropertyDetail() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-              className="fixed top-0 right-0 h-full w-full max-w-md bg-card border-l border-border/50 z-50 shadow-2xl flex flex-col"
+              className="fixed top-0 right-0 h-full w-full max-w-2xl bg-card border-l border-border/50 z-50 shadow-2xl flex flex-col"
             >
               <div className="p-4 border-b border-border/50 flex items-center justify-between bg-muted/20">
                 <div className="flex items-center gap-3">
@@ -1319,8 +1704,23 @@ export default function PropertyDetail() {
                 ) : (
                   chatMessages.map((msg, i) => (
                     <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] rounded-2xl p-4 text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted/50 border border-border/50'}`}>
-                        {msg.content}
+                      <div className={`max-w-[90%] rounded-2xl p-4 text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted/50 border border-border/50'}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            table: ({node, ...props}) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-border/50 w-full text-xs" {...props} /></div>,
+                            th: ({node, ...props}) => <th className="border border-border/50 p-2 bg-muted/50 font-bold" {...props} />,
+                            td: ({node, ...props}) => <td className="border border-border/50 p-2" {...props} />,
+                            ul: ({node, ...props}) => <ul className="list-disc ml-4 space-y-1 my-2" {...props} />,
+                            ol: ({node, ...props}) => <ol className="list-decimal ml-4 space-y-1 my-2" {...props} />,
+                            h1: ({node, ...props}) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
+                            h2: ({node, ...props}) => <h2 className="text-md font-bold mt-3 mb-1" {...props} />,
+                            h3: ({node, ...props}) => <h3 className="text-sm font-bold mt-2 mb-1" {...props} />,
+                            p: ({node, ...props}) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   ))

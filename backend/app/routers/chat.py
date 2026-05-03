@@ -52,6 +52,7 @@ async def send_message(
         property_id=request.property_id,
         property_name=property_name,
         history=history,
+        db=db,
     )
 
     # Save to database

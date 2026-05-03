@@ -21,9 +21,9 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: str
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
     full_name: str
-    tenant_name: Optional[str] = None
+
 
 
 # ─── Users ───────────────────────────────────────────────────────────
@@ -129,6 +129,7 @@ class DocumentResponse(BaseModel):
     file_size: Optional[int]
     category: str
     subcategory: Optional[str]
+    relative_path: Optional[str] = None
     ocr_confidence: float
     status: str
     ai_category: Optional[str]
@@ -150,6 +151,24 @@ class DocumentDetailResponse(DocumentResponse):
 
 class DocumentVerifyRequest(BaseModel):
     corrected_text: str
+
+
+class DocumentUpdate(BaseModel):
+    original_filename: Optional[str] = None
+    relative_path: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+
+
+class FolderRenameRequest(BaseModel):
+    property_id: int
+    old_path: str
+    new_path: str
+
+
+class FolderDeleteRequest(BaseModel):
+    property_id: int
+    path: str
 
 
 # ─── Deals ───────────────────────────────────────────────────────────
