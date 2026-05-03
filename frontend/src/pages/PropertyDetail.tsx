@@ -101,6 +101,10 @@ export default function PropertyDetail() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [deletingId, setDeletingId] = useState<number | string | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const photoDocuments = documents.filter(doc => doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || ''));
+  const nonPhotoDocs = documents.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
+
 
   const loadChatHistory = async () => {
     try {
@@ -228,6 +232,16 @@ export default function PropertyDetail() {
       ws.close();
     };
   }, [id]); // No longer depends on currentPage as it's client-side
+
+  // Carousel Auto-play logic
+  useEffect(() => {
+    if (photoDocuments.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrentPhotoIndex(prev => (prev === photoDocuments.length - 1 ? 0 : prev + 1));
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [photoDocuments.length]);
+
 
   useEffect(() => {
     if (isCopilotOpen && id) {
@@ -556,7 +570,6 @@ export default function PropertyDetail() {
     }
   ];
 
-  const nonPhotoDocs = documents.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
   
 
   const getExplorerItems = () => {
@@ -624,9 +637,6 @@ export default function PropertyDetail() {
   const displayedFolders = explorerPageItems.filter(i => i.isFolder).map(i => i.name);
   const displayedFiles = explorerPageItems.filter(i => !i.isFolder);
 
-  const photoDocuments = documents.filter(doc => 
-    doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')
-  );
 
   if (loading) {
     return (
@@ -696,6 +706,80 @@ export default function PropertyDetail() {
           </Button>
         </div>
       </div>
+
+      {/* Institutional Hero Carousel - FORCE RELOAD */}
+      {photoDocuments.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative h-[500px] w-full rounded-[2.5rem] overflow-hidden shadow-2xl border border-border/40 group bg-muted/20"
+        >
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentPhotoIndex}
+              initial={{ opacity: 0, scale: 1.05 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="absolute inset-0"
+            >
+              <AuthenticatedImage 
+                docId={photoDocuments[currentPhotoIndex].id} 
+                alt={`Property view ${currentPhotoIndex + 1}`} 
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Carousel Overlay Content */}
+          <div className="absolute bottom-10 left-10 right-10 flex justify-between items-end">
+            <div className="space-y-2">
+              <Badge className="bg-primary/40 text-primary border-primary/40 backdrop-blur-xl uppercase tracking-[0.2em] font-black text-[10px] px-4 py-1.5 rounded-full shadow-lg">
+                Institutional Asset View
+              </Badge>
+              <h2 className="text-3xl font-black text-white drop-shadow-lg">
+                Visual Documentation
+              </h2>
+              <p className="text-white/70 text-sm font-medium">
+                Verified Photo {currentPhotoIndex + 1} of {photoDocuments.length}
+              </p>
+            </div>
+
+            {/* Pagination Dots */}
+            <div className="flex gap-2.5 pb-2">
+              {photoDocuments.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCurrentPhotoIndex(i)}
+                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                    currentPhotoIndex === i 
+                      ? 'bg-primary w-8 shadow-[0_0_15px_rgba(16,185,129,0.5)]' 
+                      : 'bg-white/30 w-4 hover:bg-white/50'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Navigation Arrows */}
+          <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-between px-6 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <button
+              onClick={() => setCurrentPhotoIndex(prev => (prev === 0 ? photoDocuments.length - 1 : prev - 1))}
+              className="p-3 rounded-2xl bg-background/20 backdrop-blur-xl border border-white/10 text-white hover:bg-primary hover:border-primary/50 transition-all active:scale-90 pointer-events-auto"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => setCurrentPhotoIndex(prev => (prev === photoDocuments.length - 1 ? 0 : prev + 1))}
+              className="p-3 rounded-2xl bg-background/20 backdrop-blur-xl border border-white/10 text-white hover:bg-primary hover:border-primary/50 transition-all active:scale-90 pointer-events-auto"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          </div>
+        </motion.div>
+      )}
+
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1598,9 +1682,40 @@ export default function PropertyDetail() {
                   <h4 className="text-xs font-black uppercase tracking-widest text-primary mb-4 flex items-center gap-2">
                     <FileText className="w-4 h-4" /> AI Overview
                   </h4>
-                  <p className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap line-clamp-6 hover:line-clamp-none transition-all">
-                    {propertySummary.combined_summary}
-                  </p>
+                  <div className="space-y-4">
+                    <div className="max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({node, ...props}) => <h1 className="text-base font-bold text-foreground mt-4 mb-2" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-sm font-bold text-primary mt-3 mb-1" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-xs font-bold text-muted-foreground mt-2 mb-1" {...props} />,
+                          p: ({node, ...props}) => <p className="text-[13px] leading-relaxed text-foreground/80 mb-3 last:mb-0" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc ml-4 space-y-1 my-2 text-[13px] text-foreground/70" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal ml-4 space-y-1 my-2 text-[13px] text-foreground/70" {...props} />,
+                          li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                          strong: ({node, ...props}) => <strong className="font-bold text-foreground" {...props} />,
+                        }}
+                      >
+                        {propertySummary.primary_summary || propertySummary.combined_summary}
+                      </ReactMarkdown>
+                    </div>
+                    {propertySummary.primary_summary && propertySummary.primary_summary !== propertySummary.combined_summary && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="w-full text-[10px] uppercase tracking-widest font-black text-muted-foreground hover:text-primary py-1 h-auto"
+                        onClick={() => {
+                          // Simple modal or expansion logic could go here, 
+                          // but for now let's just allow them to toggle or we can just keep it concise as requested.
+                          const win = window.open('', '_blank');
+                          win?.document.write(`<pre style="white-space: pre-wrap; font-family: sans-serif; padding: 20px;">${propertySummary.combined_summary}</pre>`);
+                        }}
+                      >
+                        View Full Document Breakdown
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
 

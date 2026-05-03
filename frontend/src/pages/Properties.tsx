@@ -5,6 +5,8 @@ import { Building2, Plus, MapPin, Layers, Search, SlidersHorizontal, Pencil, Tra
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
+import { PropertyThumbnail } from '../components/PropertyThumbnail';
+
 export default function Properties() {
   const [properties, setProperties] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,8 +166,8 @@ export default function Properties() {
                   >
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                     
-                    <div className="aspect-[16/9] bg-muted/20 relative overflow-hidden flex items-center justify-center group-hover:bg-muted/30 transition-colors">
-                      <Building2 className="w-16 h-16 text-muted-foreground/20 group-hover:text-primary/20 transition-all duration-700 group-hover:scale-110" />
+                    <div className="aspect-[16/9] relative overflow-hidden">
+                      <PropertyThumbnail photoUrls={property.photo_urls || []} alt={property.name} className="w-full h-full" />
                       <div className="absolute top-4 right-4 flex gap-2">
                         <Badge variant={property.status === 'active' ? 'success' : 'secondary'} className="px-3 py-1 font-bold text-[10px] tracking-widest uppercase">
                           {property.status}
@@ -254,8 +256,8 @@ export default function Properties() {
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                          <Building2 className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
+                        <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center border border-border/50 shadow-inner group-hover:border-primary/50 transition-colors">
+                          <PropertyThumbnail photoUrls={property.photo_urls || []} alt={property.name} className="w-full h-full" />
                         </div>
                         <span className="font-bold text-lg">{property.name}</span>
                       </div>

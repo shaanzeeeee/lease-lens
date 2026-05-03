@@ -89,7 +89,7 @@ export default function Login() {
           >
             <Building2 className="w-8 h-8 text-primary" />
           </motion.div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Abelam Private Ledger</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Lumina Real Estate AI</h1>
           <p className="text-muted-foreground mt-2 text-sm text-center font-medium leading-relaxed">
             Institutional-grade real estate asset management<br />and intelligent underwriting.
           </p>
@@ -193,45 +193,36 @@ export default function Login() {
         </motion.div>
 
         <p className="text-center text-[10px] text-muted-foreground/50 mt-6 uppercase tracking-widest font-semibold">
-          Secured by Abelam AI · Enterprise Grade
+          Secured by Lumina AI · Enterprise Grade
         </p>
       </motion.div>
       </div>
 
-      {/* Right Visual Section */}
-      <div className="hidden lg:flex w-[50%] relative overflow-hidden items-center justify-center border-l border-border/50 bg-muted/10">
-        <div className="absolute top-[-10%] right-[-10%] w-[800px] h-[800px] rounded-full bg-primary/20 blur-[140px] animate-pulse-glow" />
-        <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-blue-500/15 blur-[160px]" />
+      {/* Right Visual Section with Generated Image */}
+      <div 
+        className="hidden lg:flex w-[50%] relative overflow-hidden items-end justify-center border-l border-border/50"
+        style={{
+          backgroundImage: 'url(/lumina_bg.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
         
-        {/* Abstract Floating UI Elements */}
-        <div className="relative z-10 w-full max-w-lg p-12 text-center">
-          <motion.div
+        <div className="relative z-10 w-full max-w-lg p-12 text-center pb-20">
+          <motion.h2 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.8 }}
-            className="glass-panel p-8 rounded-3xl border border-primary/20 shadow-2xl bg-card/40 backdrop-blur-3xl"
-          >
-            <div className="grid grid-cols-2 gap-4 opacity-80">
-              <div className="h-24 rounded-2xl bg-gradient-to-br from-primary/20 to-transparent border border-primary/10" />
-              <div className="h-24 rounded-2xl bg-gradient-to-bl from-blue-500/20 to-transparent border border-blue-500/10" />
-              <div className="col-span-2 h-32 rounded-2xl bg-gradient-to-tr from-muted/50 to-transparent border border-border/50 flex items-center justify-center">
-                <div className="h-2 w-1/2 bg-muted rounded-full" />
-              </div>
-            </div>
-          </motion.div>
-          <motion.h2 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.8 }}
-            className="text-3xl font-bold mt-12 text-foreground tracking-tight"
+            className="text-4xl font-extrabold text-white tracking-tight drop-shadow-[0_4px_20px_rgba(0,0,0,0.8)]"
           >
             Smarter Real Estate Underwriting
           </motion.h2>
           <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8, duration: 0.8 }}
-            className="text-muted-foreground mt-4 leading-relaxed"
+            className="text-white/95 mt-4 leading-relaxed font-medium text-lg drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]"
           >
             Automate document extraction, calculate NOIs, and accelerate your deal flow with our LangGraph-powered AI pipeline.
           </motion.p>

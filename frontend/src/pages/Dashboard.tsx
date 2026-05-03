@@ -6,6 +6,8 @@ import { Building2, Home, Activity, TrendingUp, Plus, ArrowRight, MessageSquare,
 import { motion } from 'framer-motion';
 import { ResponsiveContainer, LineChart, Line } from 'recharts';
 
+import { PropertyThumbnail } from '../components/PropertyThumbnail';
+
 export default function Dashboard() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -39,15 +41,31 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Institutional Dashboard</h1>
-          <p className="text-muted-foreground mt-1 font-medium">Overview of your real estate portfolio and recent underwriting activities.</p>
+      {/* Hero Banner */}
+      <motion.div 
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="w-full h-48 rounded-3xl overflow-hidden relative shadow-2xl mb-2 border border-border/50 flex justify-between items-start"
+        style={{
+          backgroundImage: 'url(/dashboard_banner.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center 40%'
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+        <div className="absolute inset-0 p-8 flex flex-col justify-center w-full md:w-2/3">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">Lumina Dashboard</h1>
+          <p className="text-white/90 mt-2 font-medium max-w-xl text-lg drop-shadow-[0_2px_5px_rgba(0,0,0,0.5)]">
+            Overview of your real estate portfolio, institutional analytics, and intelligent underwriting flows.
+          </p>
         </div>
-        <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => navigate('/properties')}>
-          <Plus className="w-4 h-4" /> Add Property
-        </Button>
-      </div>
+        <div className="relative z-10 p-8 ml-auto">
+          <Button className="gap-2 shadow-lg shadow-primary/20 backdrop-blur-md bg-primary/90 hover:bg-primary text-primary-foreground border border-primary/50" onClick={() => navigate('/properties')}>
+            <Plus className="w-4 h-4" /> Add Property
+          </Button>
+        </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {loading ? (
@@ -103,10 +121,63 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Featured Assets Section */}
+      {!loading && stats?.top_properties?.length > 0 && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-end">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight uppercase text-primary/80">Featured Portfolio Assets</h2>
+              <p className="text-muted-foreground font-medium">Top performing institutional real estate in your portfolio.</p>
+            </div>
+            <Button variant="ghost" className="gap-2 font-bold hover:text-primary transition-all" onClick={() => navigate('/properties')}>
+              View All Assets <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {stats.top_properties.map((prop: any, idx: number) => (
+              <motion.div
+                key={prop.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: idx * 0.1 }}
+                className="group cursor-pointer"
+                onClick={() => navigate(`/properties/${prop.id}`)}
+              >
+                <Card className="overflow-hidden border-border/40 bg-card/60 backdrop-blur-md hover:border-primary/40 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10">
+                  <div className="aspect-video relative overflow-hidden">
+                    <PropertyThumbnail photoUrls={prop.photo_urls || []} alt={prop.name} />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="absolute bottom-4 left-4 right-4 translate-y-4 group-hover:translate-y-0 transition-transform duration-500 opacity-0 group-hover:opacity-100">
+                      <p className="text-white font-bold text-lg leading-tight">{prop.name}</p>
+                      <p className="text-white/70 text-xs font-medium">{prop.address}, {prop.city}</p>
+                    </div>
+                  </div>
+                  <CardContent className="p-4 pt-4 flex justify-between items-center">
+                    <div className="flex gap-4">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Units</span>
+                        <span className="font-bold">{prop.unit_count}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Reports</span>
+                        <span className="font-bold">{prop.deal_count || 0}</span>
+                      </div>
+                    </div>
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-300">
+                      <ArrowUpRight className="w-5 h-5" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 border-none shadow-xl bg-card/50 backdrop-blur-sm overflow-hidden">
           <CardHeader className="border-b bg-muted/20">
-            <CardTitle className="text-base font-bold">Recent Intelligent Structuring</CardTitle>
+            <CardTitle className="text-base font-bold">Recent Intelligent Underwriting</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
