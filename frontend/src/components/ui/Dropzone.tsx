@@ -35,14 +35,40 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
         // If path is provided (from folder drag/drop), try to derive category/subcategory
         if (path) {
           const parts = path.split('/').filter(Boolean);
-          // e.g. path="expenses/School_Tax/Invoice.pdf"
-          // parts = ["expenses", "School_Tax", "Invoice.pdf"]
-          if (parts.length > 1) {
-            fileCategory = parts[0];
+          // Check if path already starts with the root folder
+          if (parts[0] !== 'Original Documents') {
+            let rootFolder = 'Other';
+            const folderLower = parts[0].toLowerCase();
+            
+            // Check if it matches a top-level category like 'lease'
+            if (['lease', 'financial', 'due_diligence', 'expense', 'legal', 'photo', 'condition'].includes(folderLower)) {
+              fileCategory = parts[0];
+            }
+            
+            if (folderLower.startsWith('apt') || folderLower.startsWith('unit')) {
+              rootFolder = 'Leases';
+              fileCategory = 'lease';
+            } else if (['lease', 'leases'].includes(folderLower)) {
+              rootFolder = 'Leases';
+              fileCategory = 'lease';
+            } else if (['financial', 'financials', 'expense', 'expenses'].includes(folderLower)) {
+              rootFolder = 'Financials';
+            } else if (['due_diligence', 'due diligence', 'legal'].includes(folderLower)) {
+              rootFolder = 'Due Diligence';
+            } else if (['photo', 'photos', 'images'].includes(folderLower)) {
+              rootFolder = 'Photos';
+            }
+            
+            // prepend Original Documents/[rootFolder] to it for the relative path
+            data.append('relative_path', `Original Documents/${rootFolder}/${path}`);
+          } else {
+            data.append('relative_path', path);
           }
-          if (parts.length > 2) {
-            fileSubcategory = parts[1];
-          }
+        } else {
+          // No path means it's a direct file upload, map it to Original Documents/Other
+          let defaultSubfolder = 'Other';
+          if (category === 'photo') defaultSubfolder = 'Photos';
+          data.append('relative_path', `Original Documents/${defaultSubfolder}/${file.name}`);
         }
 
         if (fileCategory) {
@@ -50,9 +76,6 @@ export function Dropzone({ propertyId, category, onUploadComplete }: DropzonePro
         }
         if (fileSubcategory) {
           data.append('subcategory', fileSubcategory);
-        }
-        if (path) {
-          data.append('relative_path', path);
         }
         
         await apiClient.post('/documents/upload', data, {

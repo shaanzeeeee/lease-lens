@@ -70,8 +70,8 @@ export default function AppLayout() {
             <Building2 className="text-primary w-6 h-6" />
           </div>
           <div>
-            <h2 className="font-bold tracking-tight text-foreground leading-tight">Abelam</h2>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Private Ledger</p>
+            <h2 className="font-bold tracking-tight text-foreground leading-tight">Lumina</h2>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Real Estate AI</p>
           </div>
         </div>
 

@@ -12,6 +12,8 @@ import {
   Edit3, Check, X as CloseIcon
 } from 'lucide-react';
 import { Dropzone } from '../components/ui/Dropzone';
+import { LivePipelineToast } from '../components/LivePipelineToast';
+import { AuthenticatedImage } from '../components/AuthenticatedImage';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import ReactMarkdown from 'react-markdown';
@@ -25,28 +27,6 @@ const formatLabel = (str: string) => {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
 };
-
-function AuthenticatedImage({ docId, alt, className }: { docId: number, alt: string, className?: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let objectUrl: string | null = null;
-    apiClient.get(`/documents/${docId}/file`, { responseType: 'blob' })
-      .then(response => {
-        const blob = new Blob([response.data], { type: response.headers['content-type'] as string || 'image/jpeg' });
-        objectUrl = window.URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      })
-      .catch(err => console.error('Failed to load image', err));
-
-    return () => {
-      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
-    };
-  }, [docId]);
-
-  if (!src) return <div className={`animate-pulse bg-muted/50 ${className}`}></div>;
-  return <img src={src} alt={alt} className={className} />;
-}
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -281,6 +261,19 @@ export default function PropertyDetail() {
     setPreviewDoc(doc);
     setIsReviewMode(reviewMode);
     
+    if (doc.isVirtual) {
+      setPreviewDeal(doc.dealRef);
+      setIsPreviewOpen(true);
+      setPreviewLoading(false);
+      
+      // Generate a blob for the virtual file to show in the preview
+      const content = JSON.stringify(doc.dealRef, null, 2);
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      setSelectedFileUrl(url);
+      return;
+    }
+
     const associatedDeal = deals.find(d => d.document_id === doc.id);
     setPreviewDeal(associatedDeal || null);
     
@@ -582,44 +575,104 @@ export default function PropertyDetail() {
       };
     }
 
-    // Filter documents by the current path
-    const filteredDocs = nonPhotoDocs.filter(doc => {
-      const docPath = doc.relative_path 
-        ? doc.relative_path.split('/').filter(Boolean) 
-        : [doc.category, doc.subcategory].filter(Boolean);
-      
-      if (currentPath.length > docPath.length) return false;
-      for (let i = 0; i < currentPath.length; i++) {
-        // Case-insensitive comparison for robustness
-        if (currentPath[i].toLowerCase() !== docPath[i].toLowerCase()) return false;
-      }
-      return true;
-    });
-
     const folders = new Set<string>();
     const files: any[] = [];
 
-    filteredDocs.forEach(doc => {
-      // For relative_path, the parts include the filename at the end.
-      // For category/subcategory, they are just folder names.
-      const docPath = doc.relative_path 
-        ? doc.relative_path.split('/').filter(Boolean) 
-        : [doc.category, doc.subcategory].filter(Boolean);
+    // 1. Always show default folders at root and Original Documents
+    if (currentPath.length === 0) {
+      ['Original Documents', 'Extracted Data', 'Underwriting', 'AI Reports', 'Approved Outputs', 'Audit & Chat History'].forEach(f => folders.add(f));
+    } else if (currentPath.length === 1 && currentPath[0] === 'Original Documents') {
+      ['Offering Memorandum', 'Rent Roll', 'Leases', 'Financials', 'Due Diligence', 'Photos', 'Other'].forEach(f => folders.add(f));
+    }
+
+    // Top level folders for structure checking
+    const topLevelFolders = ['Original Documents', 'Extracted Data', 'Underwriting', 'AI Reports', 'Approved Outputs', 'Audit & Chat History'];
+
+    // Helper to get the virtual directory path for a document
+    const getVirtualDirPath = (doc: any): string[] => {
+      // If it already has a relative path starting with our top-level folders, respect it
+      if (doc.relative_path) {
+        const parts = doc.relative_path.split('/').filter(Boolean);
+        if (parts.length > 1 && topLevelFolders.includes(parts[0])) {
+          return parts.slice(0, -1); // exclude filename
+        }
+      }
       
-      const isDeep = doc.relative_path 
-        ? docPath.length > currentPath.length + 1 // If there's at least one more folder before the filename
-        : docPath.length > currentPath.length;    // For category/subcategory, anything deeper is a folder
+      // Otherwise, map it into Original Documents based on category
+      let subfolder = 'Other';
+      if (doc.category === 'lease') subfolder = 'Leases';
+      else if (doc.category === 'financial' || doc.category === 'expense') subfolder = 'Financials';
+      else if (doc.category === 'due_diligence' || doc.category === 'legal' || doc.category === 'condition') subfolder = 'Due Diligence';
+      else if (doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')) subfolder = 'Photos';
+      else if (doc.original_filename?.toLowerCase().includes('rent roll')) subfolder = 'Rent Roll';
+      else if (doc.original_filename?.toLowerCase().includes('om') || doc.original_filename?.toLowerCase().includes('offering')) subfolder = 'Offering Memorandum';
+
+      if (doc.relative_path) {
+        const parts = doc.relative_path.split('/').filter(Boolean);
+        return ['Original Documents', subfolder, ...parts.slice(0, -1)];
+      }
+
+      return ['Original Documents', subfolder, doc.subcategory].filter(Boolean);
+    };
+
+    // Filter and route documents
+    nonPhotoDocs.forEach(doc => {
+      const dirPath = getVirtualDirPath(doc);
       
-      if (isDeep) {
-        folders.add(docPath[currentPath.length]);
-      } else if (doc.relative_path && docPath.length === currentPath.length + 1) {
-        // It's a file at this level (the last part is the filename)
-        files.push(doc);
-      } else if (!doc.relative_path && docPath.length === currentPath.length) {
-        // It's a file at this level (no more subfolders/subcategories)
+      // Check if this document belongs in the current path
+      let matchesPath = true;
+      if (currentPath.length > dirPath.length) {
+        matchesPath = false;
+      } else {
+        for (let i = 0; i < currentPath.length; i++) {
+          if (currentPath[i].toLowerCase() !== dirPath[i].toLowerCase()) {
+            matchesPath = false;
+            break;
+          }
+        }
+      }
+
+      if (!matchesPath) return;
+
+      if (dirPath.length > currentPath.length) {
+        // It's in a subfolder
+        folders.add(dirPath[currentPath.length]);
+      } else {
+        // It's a file at this level
         files.push(doc);
       }
     });
+
+    // Add virtual files for deals and chat history
+    if (currentPath.length === 1 && currentPath[0] === 'Extracted Data') {
+      deals.forEach(deal => {
+        files.push({
+          id: `deal-extract-${deal.id}`,
+          isVirtual: true,
+          original_filename: `${deal.deal_name || 'Deal'} - Extraction.json`,
+          file_type: 'json',
+          category: 'financial',
+          file_size: 1024,
+          status: 'verified',
+          dealRef: deal
+        });
+      });
+    }
+
+    if (currentPath.length === 1 && currentPath[0] === 'Underwriting') {
+      deals.forEach(deal => {
+        files.push({
+          id: `deal-uw-${deal.id}`,
+          isVirtual: true,
+          original_filename: `${deal.deal_name || 'Deal'} - Underwriting.pdf`,
+          file_type: 'pdf',
+          category: 'financial',
+          file_size: 2048,
+          status: 'verified',
+          dealRef: deal
+        });
+      });
+    }
 
     return {
       folders: Array.from(folders).sort(),
@@ -671,14 +724,18 @@ export default function PropertyDetail() {
     );
   }
 
+  const activePipelineDocs = documents.filter(doc => doc.status === 'processing' || processingDocs[doc.id]);
+
   return (
-    <div className="space-y-8 max-w-[1800px] mx-auto pb-12">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-4xl font-extrabold tracking-tight">{property.name}</h1>
-            <Badge variant="success" className="h-6 px-3">Active</Badge>
-          </div>
+    <>
+      <LivePipelineToast activeDocs={activePipelineDocs} />
+      <div className="space-y-8 max-w-[1800px] mx-auto pb-12">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-4xl font-extrabold tracking-tight">{property.name}</h1>
+              <Badge variant="success" className="h-6 px-3">Active</Badge>
+            </div>
           <div className="flex items-center gap-2 text-muted-foreground font-semibold text-lg">
             <MapPin className="w-5 h-5 text-primary" />
             {property.address}, {property.city}
@@ -1872,5 +1929,6 @@ export default function PropertyDetail() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }
