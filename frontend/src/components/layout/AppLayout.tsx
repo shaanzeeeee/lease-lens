@@ -66,11 +66,11 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside className="relative z-20 w-64 hidden md:flex flex-col">
         <div className="p-6 flex items-center gap-3">
-          <div className="h-10 w-10 bg-primary/10 rounded-xl flex items-center justify-center border border-primary/20 shadow-[0_0_15px_rgba(var(--primary),0.15)]">
+          <div className="h-10 w-10 neu-flat rounded-xl flex items-center justify-center border-none">
             <Building2 className="text-primary w-6 h-6" />
           </div>
           <div>
-            <h2 className="font-bold tracking-tight text-foreground leading-tight">Lumina</h2>
+            <h2 className="font-bold tracking-tight text-foreground leading-tight font-sans">LeaseLens</h2>
             <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Real Estate AI</p>
           </div>
         </div>
@@ -105,9 +105,9 @@ export default function AppLayout() {
         </nav>
 
         <div className="p-4 mt-auto">
-          <div className="p-4 bg-accent/30 rounded-2xl border border-border/50 mb-4 backdrop-blur-sm">
+          <div className="p-4 neu-flat rounded-2xl mb-4">
             <div className="flex items-center gap-3 mb-3">
-              <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center border border-primary/20">
+              <div className="h-9 w-9 rounded-full neu-pressed flex items-center justify-center">
                 <UserIcon className="w-4 h-4 text-primary" />
               </div>
               <div className="overflow-hidden">
@@ -115,7 +115,7 @@ export default function AppLayout() {
                 <p className="text-[11px] font-medium text-muted-foreground truncate">{user?.email}</p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="w-full justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30 transition-colors rounded-xl h-9" onClick={handleLogout}>
+            <Button variant="outline" size="sm" className="w-full justify-center text-muted-foreground hover:text-destructive neu-button border-none transition-colors rounded-xl h-9" onClick={handleLogout}>
               <LogOut className="w-4 h-4 mr-2" /> Sign Out
             </Button>
           </div>
@@ -125,25 +125,25 @@ export default function AppLayout() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 relative z-10 overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 border-b border-border/40 bg-background/60 backdrop-blur-2xl flex items-center justify-between px-8 shrink-0 z-20">
+        <header className="h-20 bg-background flex items-center justify-between px-8 shrink-0 z-20">
           <div className="flex-1 max-w-xl">
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <input 
                 type="text" 
                 placeholder="Search precise asset queries, properties, or deals..." 
-                className="w-full bg-card border border-border/50 shadow-sm rounded-2xl h-11 pl-12 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all font-medium placeholder:font-normal placeholder:text-muted-foreground/70"
+                className="w-full neu-pressed border-none rounded-2xl h-11 pl-12 pr-4 text-sm focus:outline-none focus:ring-0 transition-all font-medium placeholder:font-normal placeholder:text-muted-foreground/70"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full hover:bg-accent/50">
+            <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full neu-button border-none hover:bg-transparent">
               {theme === 'light' ? <Moon className="w-5 h-5 text-muted-foreground" /> : <Sun className="w-5 h-5 text-primary" />}
             </Button>
             <div className="h-6 w-[1px] bg-border mx-1" />
-            <div className="text-xs font-medium px-3 py-1 bg-secondary rounded-full border text-secondary-foreground">
+            <div className="text-xs font-medium px-3 py-1 bg-secondary rounded-full text-secondary-foreground neu-pressed">
               Tenant ID: {user?.tenant_id}
             </div>
           </div>

@@ -1,34 +1,39 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: "Space Mono", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
 
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
 
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
 
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
 
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
 
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
 
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -37,48 +42,60 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 224 71% 4%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
-    --primary: 255 83% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 224 71% 4%;
-    --muted: 240 5% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 255 83% 60% / 0.1;
-    --accent-foreground: 255 83% 60%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 255 83% 60%;
-    --radius: 0.75rem;
+    --primary: #006666;
+    --secondary: #F1F2F5;
+    --success: #00A63D;
+    --warning: #FE9900;
+    --danger: #FF2157;
+    --surface: #E7E5E4;
+    --text-color: #111827;
+    --neutral: #D4D4D8;
+
+    --background: var(--surface);
+    --foreground: var(--text-color);
+    --card: var(--surface);
+    --card-foreground: var(--text-color);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-color);
+    --primary-foreground: #FFFFFF;
+    --secondary-foreground: var(--text-color);
+    --muted: var(--neutral);
+    --muted-foreground: #526071;
+    --accent: var(--primary);
+    --accent-foreground: #FFFFFF;
+    --destructive: var(--danger);
+    --destructive-foreground: #FFFFFF;
+    --border: #C1C1C6;
+    --input: #C1C1C6;
+    --ring: var(--primary);
+    --radius: 8px;
   }
 
   .dark {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 7%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 5%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 255 83% 65%;
-    --primary-foreground: 222 47% 4%;
-    --secondary: 222 40% 13%;
-    --secondary-foreground: 255 83% 65%;
-    --muted: 222 40% 13%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 255 83% 65% / 0.1;
-    --accent-foreground: 213 31% 91%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 224 40% 16%;
-    --input: 224 40% 16%;
-    --ring: 255 83% 65%;
+    /* For Neumorphism, we'll keep a slightly darker surface for dark mode, 
+       but you can stick to the same palette if it's supposed to be monochrome */
+    --surface: #2A2D34;
+    --text-color: #F1F2F5;
+    --neutral: #3B3F49;
+    
+    --background: var(--surface);
+    --foreground: var(--text-color);
+    --card: var(--surface);
+    --card-foreground: var(--text-color);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-color);
+    --primary-foreground: #FFFFFF;
+    --secondary: #3B3F49;
+    --secondary-foreground: var(--text-color);
+    --muted: #3B3F49;
+    --muted-foreground: #9CA3AF;
+    --accent: var(--primary);
+    --accent-foreground: #FFFFFF;
+    --destructive: var(--danger);
+    --destructive-foreground: #FFFFFF;
+    --border: #4B5563;
+    --input: #4B5563;
+    --ring: var(--primary);
   }
 }
 
@@ -119,12 +136,12 @@
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.15); }
-  50% { box-shadow: 0 0 20px 4px hsl(var(--primary) / 0.08); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--primary); opacity: 0.8; }
+  50% { box-shadow: 0 0 20px 4px var(--primary); opacity: 1; }
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, hsl(var(--primary) / 0.04) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(0, 102, 102, 0.04) 50%, transparent 100%);
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;
 }
@@ -139,9 +156,47 @@
 
 /* Glass morphism utility */
 .glass {
-  background: hsl(var(--card) / 0.6);
+  background: var(--surface);
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+/* Neumorphism Utilities */
+.neu-flat {
+  background: var(--surface);
+  box-shadow: 6px 6px 12px #c4c2c1, -6px -6px 12px #ffffff;
+}
+
+.dark .neu-flat {
+  background: var(--surface);
+  box-shadow: 5px 5px 10px #1e2025, -5px -5px 10px #363a43;
+}
+
+.neu-pressed {
+  background: var(--surface);
+  box-shadow: inset 6px 6px 12px #c4c2c1, inset -6px -6px 12px #ffffff;
+}
+
+.dark .neu-pressed {
+  background: var(--surface);
+  box-shadow: inset 5px 5px 10px #1e2025, inset -5px -5px 10px #363a43;
+}
+
+.neu-button {
+  transition: all 0.2s ease-in-out;
+  background: var(--surface);
+  box-shadow: 6px 6px 12px #c4c2c1, -6px -6px 12px #ffffff;
+}
+.neu-button:active {
+  box-shadow: inset 6px 6px 12px #c4c2c1, inset -6px -6px 12px #ffffff;
+}
+
+.dark .neu-button {
+  background: var(--surface);
+  box-shadow: 5px 5px 10px #1e2025, -5px -5px 10px #363a43;
+}
+.dark .neu-button:active {
+  box-shadow: inset 5px 5px 10px #1e2025, inset -5px -5px 10px #363a43;
 }
 
 /* Skeleton loading shimmer */

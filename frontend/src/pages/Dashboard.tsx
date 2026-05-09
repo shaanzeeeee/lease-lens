@@ -55,7 +55,7 @@ export default function Dashboard() {
       >
         <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
         <div className="absolute inset-0 p-8 flex flex-col justify-center w-full md:w-2/3">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">Lumina Dashboard</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)] font-sans">LeaseLens Dashboard</h1>
           <p className="text-white/90 mt-2 font-medium max-w-xl text-lg drop-shadow-[0_2px_5px_rgba(0,0,0,0.5)]">
             Overview of your real estate portfolio, institutional analytics, and intelligent underwriting flows.
           </p>
@@ -70,7 +70,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {loading ? (
           Array.from({ length: 4 }).map((_, idx) => (
-            <Card key={idx} className="bg-card/50 backdrop-blur-sm border-primary/10">
+            <Card key={idx} className="neu-flat border-none">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-10 w-10 rounded-xl" />
@@ -89,12 +89,12 @@ export default function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.08 }}
             >
-              <Card className="bg-card/50 backdrop-blur-sm border-primary/10 hover:border-primary/30 transition-all duration-300 hover:shadow-lg hover:shadow-primary/5 group cursor-default">
+              <Card className="neu-flat border-none transition-all duration-300 hover:shadow-lg group cursor-default">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                  <CardTitle className="text-sm font-medium text-muted-foreground font-mono uppercase">
                     {stat.title}
                   </CardTitle>
-                  <div className="p-2.5 bg-primary/10 rounded-xl group-hover:bg-primary/15 transition-colors">
+                  <div className="p-2.5 neu-pressed rounded-xl group-hover:bg-primary/5 transition-colors">
                     <stat.icon className="w-4 h-4 text-primary" />
                   </div>
                 </CardHeader>
@@ -143,8 +143,8 @@ export default function Dashboard() {
                 className="group cursor-pointer"
                 onClick={() => navigate(`/properties/${prop.id}`)}
               >
-                <Card className="overflow-hidden border-border/40 bg-card/60 backdrop-blur-md hover:border-primary/40 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10">
-                  <div className="aspect-video relative overflow-hidden">
+                <Card className="overflow-hidden border-none neu-flat transition-all duration-500 hover:shadow-2xl hover:-translate-y-1">
+                  <div className="aspect-video relative overflow-hidden rounded-t-xl">
                     <PropertyThumbnail photoUrls={prop.photo_urls || []} alt={prop.name} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                     <div className="absolute bottom-4 left-4 right-4 translate-y-4 group-hover:translate-y-0 transition-transform duration-500 opacity-0 group-hover:opacity-100">
@@ -175,9 +175,9 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 border-none shadow-xl bg-card/50 backdrop-blur-sm overflow-hidden">
-          <CardHeader className="border-b bg-muted/20">
-            <CardTitle className="text-base font-bold">Recent Intelligent Underwriting</CardTitle>
+        <Card className="lg:col-span-2 border-none neu-flat overflow-hidden">
+          <CardHeader className="border-b-0 pb-4">
+            <CardTitle className="text-base font-bold font-mono uppercase">Recent Intelligent Underwriting</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
@@ -239,9 +239,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-xl bg-gradient-to-br from-primary/5 to-card/50 backdrop-blur-sm overflow-hidden">
-          <CardHeader className="border-b bg-muted/10">
-            <CardTitle className="text-base font-bold flex items-center gap-2">
+        <Card className="border-none neu-flat overflow-hidden">
+          <CardHeader className="border-b-0">
+            <CardTitle className="text-base font-bold flex items-center gap-2 font-mono uppercase">
               <MessageSquare className="w-4 h-4 text-primary" /> Concierge Activity
             </CardTitle>
           </CardHeader>

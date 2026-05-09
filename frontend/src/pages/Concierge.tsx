@@ -161,7 +161,7 @@ export default function Concierge() {
       </div>
 
       {/* Main Chat Area */}
-      <Card className="flex-1 flex flex-col overflow-hidden border-border/50 shadow-xl bg-card/50 backdrop-blur-sm rounded-2xl relative">
+      <Card className="flex-1 flex flex-col overflow-hidden border-none neu-flat rounded-2xl relative">
         {/* Messages Container */}
         <div 
           ref={scrollRef}
@@ -256,26 +256,26 @@ export default function Concierge() {
         </div>
 
         {/* Input Area */}
-        <div className="p-6 bg-background/50 border-t border-border/50 backdrop-blur-md">
+        <div className="p-6 bg-background/50 border-t-0 backdrop-blur-md rounded-b-2xl">
           <div className="relative max-w-4xl mx-auto flex gap-3">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSend()}
               placeholder={selectedPropertyId ? "Ask a question about this property..." : "Ask a general question about your portfolio..."}
-              className="flex-1 bg-background border-border/50 rounded-xl h-12 pr-12 focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+              className="flex-1 border-none neu-pressed rounded-xl h-12 pr-12 focus-visible:ring-0 transition-all"
               disabled={isLoading}
             />
             <Button 
               onClick={handleSend}
               disabled={isLoading || !input.trim()}
-              className="rounded-xl h-12 px-6 shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="rounded-xl h-12 px-6 neu-button border-none transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
-          <p className="text-[10px] text-center text-muted-foreground mt-3 uppercase tracking-widest font-semibold opacity-50">
-            Powered by Abelam Deal Intelligence Agent
+          <p className="text-[10px] text-center text-muted-foreground mt-3 uppercase tracking-widest font-semibold opacity-50 font-mono">
+            Powered by LeaseLens Deal Intelligence Agent
           </p>
         </div>
       </Card>

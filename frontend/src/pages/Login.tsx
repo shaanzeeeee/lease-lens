@@ -8,8 +8,8 @@ import { apiClient } from '../api/client';
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('recruiter@leaselens.com');
+  const [password, setPassword] = useState('showcase_mode');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
@@ -35,33 +35,23 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      if (isLogin) {
-        const response = await apiClient.post('/auth/login', {
-          email,
-          password,
-        });
+      // Mock login for recruiter showcase mode
+      setTimeout(() => {
+        const dummyToken = 'mock_jwt_token_12345';
+        const dummyUser = {
+          id: 1,
+          email: email,
+          full_name: fullName || 'Recruiter Guest',
+          role: 'admin',
+          tenant_id: 1
+        };
         
-        login(response.data.access_token, response.data.user);
+        login(dummyToken, dummyUser);
         navigate('/dashboard');
-      } else {
-        const response = await apiClient.post('/auth/register', {
-          email,
-          password,
-          full_name: fullName,
-        });
-        
-        login(response.data.access_token, response.data.user);
-        navigate('/dashboard');
-      }
+      }, 1500);
     } catch (err: any) {
       console.error('Login error:', err);
-      const detail = err.response?.data?.detail;
-      const errorMessage = typeof detail === 'string' 
-        ? detail 
-        : (Array.isArray(detail) ? detail.map(d => d.msg).join(', ') : 'Authentication failed. Please try again.');
-      setError(errorMessage);
-    } finally {
-      setIsLoading(false);
+      setError('Authentication failed. Please try again.');
     }
   };
 
@@ -85,11 +75,11 @@ export default function Login() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.15, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="h-16 w-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 shadow-xl border border-primary/20 ring-1 ring-primary/10 animate-pulse-glow"
+            className="h-16 w-16 rounded-2xl flex items-center justify-center mb-6 neu-flat"
           >
             <Building2 className="w-8 h-8 text-primary" />
           </motion.div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Lumina Real Estate AI</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground font-sans">LeaseLens</h1>
           <p className="text-muted-foreground mt-2 text-sm text-center font-medium leading-relaxed">
             Institutional-grade real estate asset management<br />and intelligent underwriting.
           </p>
@@ -99,8 +89,15 @@ export default function Login() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5 }}
-          className="bg-card border shadow-2xl rounded-2xl p-6 backdrop-blur-xl bg-card/80"
+          className="rounded-2xl p-6 neu-flat"
         >
+          <div className="mb-4 text-center">
+            <span className="inline-block bg-primary/10 text-primary text-xs font-bold uppercase tracking-widest py-1 px-3 rounded-full">
+              Recruiter Showcase Mode
+            </span>
+            <p className="text-xs text-muted-foreground mt-2">Credentials pre-filled. Just click Sign In.</p>
+          </div>
+          
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <motion.div
@@ -127,8 +124,8 @@ export default function Login() {
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold flex items-center gap-2">
-                <Mail className="w-4 h-4 text-muted-foreground" /> Email Address
+              <label className="text-sm font-semibold flex items-center gap-2 font-mono uppercase text-xs">
+                <Mail className="w-4 h-4 text-primary" /> Email Address
               </label>
               <Input
                 type="email"
@@ -136,13 +133,13 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="bg-background/50 h-11"
+                className="h-11 neu-pressed border-none focus-visible:ring-0"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold flex items-center gap-2">
-                <Lock className="w-4 h-4 text-muted-foreground" /> Password
+              <label className="text-sm font-semibold flex items-center gap-2 font-mono uppercase text-xs">
+                <Lock className="w-4 h-4 text-primary" /> Password
               </label>
               <Input
                 type="password"
@@ -150,14 +147,14 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="bg-background/50 h-11"
+                className="h-11 neu-pressed border-none focus-visible:ring-0"
               />
             </div>
 
             {!isLogin && (
               <div className="space-y-2">
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-muted-foreground" /> Confirm Password
+                <label className="text-sm font-semibold flex items-center gap-2 font-mono uppercase text-xs">
+                  <Lock className="w-4 h-4 text-primary" /> Confirm Password
                 </label>
                 <Input
                   type="password"
@@ -165,12 +162,12 @@ export default function Login() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required={!isLogin}
-                  className="bg-background/50 h-11"
+                  className="h-11 neu-pressed border-none focus-visible:ring-0"
                 />
               </div>
             )}
 
-            <Button type="submit" className="w-full mt-6 h-12 text-base font-bold shadow-lg shadow-primary/20" disabled={isLoading}>
+            <Button type="submit" className="w-full mt-6 h-12 text-base font-bold neu-button bg-primary text-primary-foreground border-none hover:bg-primary/90" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" /> Authenticating…
@@ -193,7 +190,7 @@ export default function Login() {
         </motion.div>
 
         <p className="text-center text-[10px] text-muted-foreground/50 mt-6 uppercase tracking-widest font-semibold">
-          Secured by Lumina AI · Enterprise Grade
+          Secured by LeaseLens AI · Enterprise Grade
         </p>
       </motion.div>
       </div>

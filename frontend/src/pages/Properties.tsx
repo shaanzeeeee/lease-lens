@@ -98,15 +98,15 @@ export default function Properties() {
             <input 
               type="text" 
               placeholder="Search assets by name, address, or city..." 
-              className="w-full pl-10 pr-4 py-3 bg-muted/30 border border-border/50 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none shadow-sm focus:shadow-md"
+              className="w-full pl-10 pr-4 py-3 neu-pressed border-none rounded-xl text-sm font-medium focus:ring-0 transition-all outline-none shadow-sm focus:shadow-md"
             />
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-muted/30 p-1 rounded-xl border border-border/50">
+          <div className="flex items-center neu-pressed p-1 rounded-xl border-none">
             <Button 
               variant={viewMode === 'grid' ? 'default' : 'ghost'} 
               size="sm" 
-              className="h-9 px-3 rounded-lg"
+              className={`h-9 px-3 rounded-lg ${viewMode === 'grid' ? 'neu-button border-none bg-primary text-primary-foreground' : ''}`}
               onClick={() => setViewMode('grid')}
             >
               <LayoutGrid className="w-4 h-4 mr-2" /> Grid
@@ -114,13 +114,13 @@ export default function Properties() {
             <Button 
               variant={viewMode === 'list' ? 'default' : 'ghost'} 
               size="sm" 
-              className="h-9 px-3 rounded-lg"
+              className={`h-9 px-3 rounded-lg ${viewMode === 'list' ? 'neu-button border-none bg-primary text-primary-foreground' : ''}`}
               onClick={() => setViewMode('list')}
             >
               <List className="w-4 h-4 mr-2" /> List
             </Button>
           </div>
-          <Button variant="outline" className="gap-2 h-11 px-5 font-semibold border-border/50 hover:bg-muted/50">
+          <Button variant="outline" className="gap-2 h-11 px-5 font-semibold neu-button border-none hover:bg-transparent">
             <SlidersHorizontal className="w-4 h-4" /> Filters
           </Button>
         </div>
@@ -137,7 +137,7 @@ export default function Properties() {
           >
             {loading ? (
               Array.from({ length: 6 }).map((_, idx) => (
-                <Card key={idx} className="border-border/40 bg-card/40 overflow-hidden">
+                <Card key={idx} className="neu-flat border-none overflow-hidden">
                    <div className="aspect-[16/9] w-full bg-muted/20 animate-pulse" />
                    <CardHeader className="p-6">
                      <Skeleton className="h-6 w-3/4 mb-2" />
@@ -161,7 +161,7 @@ export default function Properties() {
                   className="h-full group relative"
                 >
                   <Card 
-                    className="h-full flex flex-col border-border/40 hover:border-primary/40 bg-card/60 backdrop-blur-xl transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-1 cursor-pointer overflow-hidden"
+                    className="h-full flex flex-col neu-flat border-none transition-all duration-500 hover:shadow-2xl hover:-translate-y-1 cursor-pointer overflow-hidden"
                     onClick={() => navigate(`/properties/${property.id}`)}
                   >
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -230,12 +230,12 @@ export default function Properties() {
             )}
           </motion.div>
         ) : (
-          <motion.div 
+            <motion.div 
             key="list"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="border border-border/50 rounded-2xl overflow-hidden bg-card/40 backdrop-blur-md shadow-xl"
+            className="neu-flat border-none rounded-2xl overflow-hidden"
           >
             <table className="w-full text-left border-collapse relative">
               <thead className="sticky top-0 backdrop-blur-md z-10 shadow-sm bg-muted/40">

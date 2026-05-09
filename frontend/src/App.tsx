@@ -16,7 +16,7 @@ const PropertyDetail = React.lazy(() => import('./pages/PropertyDetail'));
 const PageLoader = () => (
   <div className="h-screen w-screen flex flex-col items-center justify-center bg-background">
     <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-4" />
-    <p className="text-muted-foreground font-medium animate-pulse">Loading Lumina...</p>
+    <p className="text-muted-foreground font-medium animate-pulse">Loading LeaseLens...</p>
   </div>
 );
 
