@@ -84,6 +84,10 @@ export default function PropertyDetail() {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const photoDocuments = documents.filter(doc => doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || ''));
   const nonPhotoDocs = documents.filter(doc => !(doc.category === 'photo' || ['jpg', 'jpeg', 'png', 'tiff'].includes(doc.file_type?.toLowerCase() || '')));
+  
+  const photosToRender = photoDocuments.length > 0 
+    ? photoDocuments 
+    : (property?.photo_urls || []).map((url: string, index: number) => ({ isUrl: true, url, id: `photo-${index}` }));
 
 
   const loadChatHistory = async () => {
@@ -215,12 +219,12 @@ export default function PropertyDetail() {
 
   // Carousel Auto-play logic
   useEffect(() => {
-    if (photoDocuments.length <= 1) return;
+    if (photosToRender.length <= 1) return;
     const timer = setInterval(() => {
-      setCurrentPhotoIndex(prev => (prev === photoDocuments.length - 1 ? 0 : prev + 1));
+      setCurrentPhotoIndex(prev => (prev === photosToRender.length - 1 ? 0 : prev + 1));
     }, 5000);
     return () => clearInterval(timer);
-  }, [photoDocuments.length]);
+  }, [photosToRender.length]);
 
 
   useEffect(() => {
@@ -765,7 +769,7 @@ export default function PropertyDetail() {
       </div>
 
       {/* Institutional Hero Carousel - FORCE RELOAD */}
-      {photoDocuments.length > 0 && (
+      {photosToRender.length > 0 && (
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -780,11 +784,19 @@ export default function PropertyDetail() {
               transition={{ duration: 0.8, ease: "easeOut" }}
               className="absolute inset-0"
             >
-              <AuthenticatedImage 
-                docId={photoDocuments[currentPhotoIndex].id} 
-                alt={`Property view ${currentPhotoIndex + 1}`} 
-                className="w-full h-full object-cover"
-              />
+              {photosToRender[currentPhotoIndex]?.isUrl ? (
+                <img 
+                  src={photosToRender[currentPhotoIndex].url} 
+                  alt={`Property view ${currentPhotoIndex + 1}`} 
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <AuthenticatedImage 
+                  docId={photosToRender[currentPhotoIndex].id} 
+                  alt={`Property view ${currentPhotoIndex + 1}`} 
+                  className="w-full h-full object-cover"
+                />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
             </motion.div>
           </AnimatePresence>
@@ -799,7 +811,7 @@ export default function PropertyDetail() {
                 Visual Documentation
               </h2>
               <p className="text-white/70 text-sm font-medium">
-                Verified Photo {currentPhotoIndex + 1} of {photoDocuments.length}
+                Verified Photo {currentPhotoIndex + 1} of {photosToRender.length}
               </p>
             </div>
 
